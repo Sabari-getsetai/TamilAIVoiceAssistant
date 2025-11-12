@@ -18,7 +18,7 @@ import {
   Refresh as RefreshIcon,
 } from '@mui/icons-material';
 import { useRouter } from 'next/navigation';
-import MainLayout from '../../components/layout/MainLayout';
+import ProtectedLayout from '../../components/layout/ProtectedLayout';
 import { useStats } from '../../hooks/useStats';
 import { formatNumber } from '../../utils/format';
 
@@ -35,7 +35,7 @@ export default function AdminDashboard() {
   };
 
   return (
-    <MainLayout>
+    <ProtectedLayout title="Admin Dashboard">
       <Container maxWidth="lg">
         <Box sx={{ mb: 4 }}>
           <Typography variant="h4" component="h1" gutterBottom fontWeight="bold">
@@ -205,7 +205,7 @@ export default function AdminDashboard() {
             </Card>
           </Box>
         </Box>
-      </Container>
-    </MainLayout>
+        </Container>
+    </ProtectedLayout>
   );
 }

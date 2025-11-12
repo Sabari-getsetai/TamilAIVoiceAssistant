@@ -23,13 +23,15 @@ logger = logging.getLogger(__name__)
 # Add backend to path
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
-from fastapi import APIRouter, UploadFile, File, HTTPException, BackgroundTasks
+from fastapi import APIRouter, UploadFile, File, HTTPException, BackgroundTasks, Depends
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
 from backend.settings import settings
 from backend.graphs import run_ingestion_workflow
 from backend.rag import VectorStore, get_embedding_model
+from backend.api.auth import get_current_admin_user
+from backend.database.models import User
 
 
 # Create router
@@ -186,6 +188,7 @@ def run_ingestion_in_background(session_id: str, file_paths: List[str], vector_s
 @router.post("/upload", response_model=UploadResponse)
 async def upload_documents(
     files: List[UploadFile] = File(...),
+    current_admin: User = Depends(get_current_admin_user),
 ) -> UploadResponse:
     """
     Upload documents for ingestion
@@ -251,6 +254,7 @@ async def upload_documents(
 async def ingest_documents(
     request: IngestRequest,
     background_tasks: BackgroundTasks,
+    current_admin: User = Depends(get_current_admin_user),
 ) -> IngestResponse:
     """
     Trigger document ingestion workflow
@@ -301,7 +305,10 @@ async def ingest_documents(
 
 
 @router.get("/status/{session_id}", response_model=StatusResponse)
-async def get_ingestion_status(session_id: str) -> StatusResponse:
+async def get_ingestion_status(
+    session_id: str,
+    current_admin: User = Depends(get_current_admin_user),
+) -> StatusResponse:
     """
     Get status of an ingestion session
 
@@ -333,6 +340,7 @@ async def get_ingestion_status(session_id: str) -> StatusResponse:
 async def list_documents(
     vector_store_name: str = "default",
     limit: int = 100,
+    current_admin: User = Depends(get_current_admin_user),
 ) -> DocumentsResponse:
     """
     List indexed documents in vector store
@@ -432,6 +440,7 @@ async def list_documents(
 async def get_document(
     doc_id: str,
     vector_store_name: str = "default",
+    current_admin: User = Depends(get_current_admin_user),
 ) -> DocumentInfo:
     """
     Get a specific document by ID
@@ -494,6 +503,7 @@ async def get_document(
 async def delete_document(
     doc_id: str,
     vector_store_name: str = "default",
+    current_admin: User = Depends(get_current_admin_user),
 ) -> JSONResponse:
     """
     Delete a document (all chunks) from vector store
@@ -554,7 +564,10 @@ async def delete_document(
 
 
 @router.get("/stats")
-async def get_vector_store_stats(vector_store_name: str = "default") -> JSONResponse:
+async def get_vector_store_stats(
+    vector_store_name: str = "default",
+    current_admin: User = Depends(get_current_admin_user),
+) -> JSONResponse:
     """
     Get statistics about the vector store
 
@@ -627,7 +640,10 @@ async def get_vector_store_stats(vector_store_name: str = "default") -> JSONResp
 
 
 @router.post("/clear")
-async def clear_all_documents(vector_store_name: str = "default") -> JSONResponse:
+async def clear_all_documents(
+    vector_store_name: str = "default",
+    current_admin: User = Depends(get_current_admin_user),
+) -> JSONResponse:
     """
     Clear all documents from vector store and delete uploaded files
 
@@ -689,6 +705,7 @@ async def clear_all_documents(vector_store_name: str = "default") -> JSONRespons
 async def reindex_all_documents(
     vector_store_name: str = "default",
     background_tasks: BackgroundTasks = None,
+    current_admin: User = Depends(get_current_admin_user),
 ) -> JSONResponse:
     """
     Re-index all documents in the vector store
@@ -737,7 +754,10 @@ async def reindex_all_documents(
 
 
 @router.delete("/index")
-async def delete_index(vector_store_name: str = "default") -> JSONResponse:
+async def delete_index(
+    vector_store_name: str = "default",
+    current_admin: User = Depends(get_current_admin_user),
+) -> JSONResponse:
     """
     Delete the entire vector store index (keeps uploaded files)
 
@@ -788,6 +808,7 @@ async def reindex_single_document(
     doc_id: str,
     vector_store_name: str = "default",
     background_tasks: BackgroundTasks = None,
+    current_admin: User = Depends(get_current_admin_user),
 ) -> JSONResponse:
     """
     Re-index a specific document
@@ -879,7 +900,7 @@ async def reindex_single_document(
 
 
 @router.post("/reset-tts")
-async def reset_tts():
+async def reset_tts(current_admin: User = Depends(get_current_admin_user)):
     """
     Reset the TTS engine to pick up new configuration
 

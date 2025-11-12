@@ -36,14 +36,10 @@ from pydantic import BaseModel, Field
 
 from backend.settings import settings
 from backend.graphs.chat_graph import (
-    create_session,
-    process_conversation_turn,
-    get_session_info,
-    get_conversation_history,
-    delete_session as delete_chat_session,
-    get_session_stats,
-    list_active_sessions,
+    process_conversation_turn_async,
 )
+from backend.services.session_service import get_session_manager
+from backend.database.connection import get_db
 from backend.speech import transcribe_audio, synthesize_speech
 from backend.models import get_llm, initialize_llm
 from backend.rag import get_embedding_model, VectorStore, get_rag_prompt_builder
@@ -264,15 +260,18 @@ async def create_chat_session(
         Session information
     """
     try:
-        # Create session
-        session_id = create_session(
+        # Get session manager
+        session_manager = await get_session_manager()
+        
+        # Create session in database
+        session_id = await session_manager.create_session(
             user_id=request.user_id,
             language=request.language,
             rag_enabled=request.rag_enabled,
         )
 
-        # Get session info
-        session_info = get_session_info(session_id)
+        # Get session info from database
+        session_info = await session_manager.get_session(session_id)
 
         # Schedule cleanup of old audio files
         background_tasks.add_task(cleanup_old_audio_files)
@@ -305,7 +304,11 @@ async def get_session(session_id: str) -> SessionResponse:
         Session information
     """
     try:
-        session_info = get_session_info(session_id)
+        # Get session manager
+        session_manager = await get_session_manager()
+        
+        # Get session from database
+        session_info = await session_manager.get_session(session_id)
 
         if not session_info:
             raise HTTPException(status_code=404, detail="Session not found")
@@ -329,19 +332,31 @@ async def get_session(session_id: str) -> SessionResponse:
 
 
 @router.get("/sessions", response_model=List[SessionResponse])
-async def list_sessions() -> List[SessionResponse]:
+async def list_sessions(user_id: Optional[str] = None) -> List[SessionResponse]:
     """
     List all active sessions
+
+    Args:
+        user_id: Optional user ID to filter sessions
 
     Returns:
         List of active sessions
     """
     try:
-        sessions = list_active_sessions()
+        # Get session manager
+        session_manager = await get_session_manager()
+        
+        # List sessions from database
+        from backend.database.models import SessionStatus
+        sessions = await session_manager.list_user_sessions(
+            user_id=user_id or "00000000-0000-0000-0000-000000000000",  # Dummy UUID for all sessions
+            status_filter=SessionStatus.ACTIVE,
+            limit=100
+        )
 
         return [
             SessionResponse(
-                session_id=sid,
+                session_id=info["session_id"],
                 user_id=info.get("user_id"),
                 language=info["language"],
                 rag_enabled=info["rag_enabled"],
@@ -351,7 +366,7 @@ async def list_sessions() -> List[SessionResponse]:
                 session_duration=info.get("session_duration"),
                 status=info["status"],
             )
-            for sid, info in sessions.items()
+            for info in sessions
         ]
 
     except Exception as e:
@@ -359,18 +374,23 @@ async def list_sessions() -> List[SessionResponse]:
 
 
 @router.delete("/sessions/{session_id}")
-async def delete_session(session_id: str) -> JSONResponse:
+async def delete_session(session_id: str, user_id: Optional[str] = None) -> JSONResponse:
     """
     Delete a chat session
 
     Args:
         session_id: Session identifier
+        user_id: Optional user ID for authorization
 
     Returns:
         Deletion confirmation
     """
     try:
-        success = delete_chat_session(session_id)
+        # Get session manager
+        session_manager = await get_session_manager()
+        
+        # Delete session from database
+        success = await session_manager.delete_session(session_id, user_id=user_id)
 
         if not success:
             raise HTTPException(status_code=404, detail="Session not found")
@@ -390,18 +410,23 @@ async def delete_session(session_id: str) -> JSONResponse:
 
 
 @router.get("/sessions/{session_id}/history", response_model=ConversationHistoryResponse)
-async def get_history(session_id: str) -> ConversationHistoryResponse:
+async def get_history(session_id: str, limit: int = 50) -> ConversationHistoryResponse:
     """
     Get conversation history for a session
 
     Args:
         session_id: Session identifier
+        limit: Maximum number of turns to retrieve
 
     Returns:
         Conversation history
     """
     try:
-        history = get_conversation_history(session_id)
+        # Get session manager
+        session_manager = await get_session_manager()
+        
+        # Get history from database
+        history = await session_manager.get_conversation_history(session_id, limit=limit)
 
         if history is None:
             raise HTTPException(status_code=404, detail="Session not found")
@@ -419,24 +444,46 @@ async def get_history(session_id: str) -> ConversationHistoryResponse:
 
 
 @router.get("/stats", response_model=SessionStatsResponse)
-async def get_stats() -> SessionStatsResponse:
+async def get_stats(session_id: Optional[str] = None) -> SessionStatsResponse:
     """
-    Get global session statistics
+    Get session statistics
+
+    Args:
+        session_id: Optional session ID for specific session stats
 
     Returns:
         Session statistics
     """
     try:
-        stats = get_session_stats()
+        # Get session manager
+        session_manager = await get_session_manager()
+        
+        if session_id:
+            # Get stats for specific session
+            stats = await session_manager.get_session_stats(session_id)
+            if not stats:
+                raise HTTPException(status_code=404, detail="Session not found")
+            
+            return SessionStatsResponse(
+                total_sessions=1,
+                active_sessions=1 if stats["status"] == "active" else 0,
+                total_turns=stats["total_turns"],
+                average_session_duration=stats["duration_seconds"],
+                average_turn_time=stats["avg_processing_time"],
+            )
+        else:
+            # Return placeholder global stats
+            # TODO: Implement proper global stats aggregation
+            return SessionStatsResponse(
+                total_sessions=0,
+                active_sessions=0,
+                total_turns=0,
+                average_session_duration=0.0,
+                average_turn_time=0.0,
+            )
 
-        return SessionStatsResponse(
-            total_sessions=stats["total_sessions"],
-            active_sessions=stats["active_sessions"],
-            total_turns=stats["total_turns"],
-            average_session_duration=stats["average_session_duration"],
-            average_turn_time=stats["average_turn_time"],
-        )
-
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error getting stats: {e}")
 
@@ -465,8 +512,9 @@ async def process_turn(
     audio_path = None
     
     try:
-        # Validate session exists
-        session_info = get_session_info(session_id)
+        # Get session manager and validate session exists
+        session_manager = await get_session_manager()
+        session_info = await session_manager.get_session(session_id)
         if not session_info:
             raise HTTPException(status_code=404, detail="Session not found")
 
@@ -482,9 +530,9 @@ async def process_turn(
         # Save audio file
         audio_path = await save_audio_file(audio, prefix="input")
 
-        # Process conversation turn
+        # Process conversation turn using async function
         start_time = time.time()
-        result = process_conversation_turn(
+        result = await process_conversation_turn_async(
             session_id=session_id,
             audio_input_path=str(audio_path),
             language=language,
@@ -537,14 +585,15 @@ async def process_text_turn(
         Text conversation result
     """
     try:
-        # Validate session exists
-        session_info = get_session_info(session_id)
+        # Get session manager and validate session exists
+        session_manager = await get_session_manager()
+        session_info = await session_manager.get_session(session_id)
         if not session_info:
             raise HTTPException(status_code=404, detail="Session not found")
 
-        # Process with text input (no audio)
+        # Process with text input (no audio) using async function
         start_time = time.time()
-        result = process_conversation_turn(
+        result = await process_conversation_turn_async(
             session_id=session_id,
             text_input=request.text,
             language=request.language,
@@ -801,8 +850,9 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str):
     await websocket.accept()
     
     try:
-        # Validate session exists
-        session_info = get_session_info(session_id)
+        # Get session manager and validate session exists
+        session_manager = await get_session_manager()
+        session_info = await session_manager.get_session(session_id)
         if not session_info:
             await websocket.send_json({
                 "type": "error",
@@ -835,8 +885,8 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str):
                     text = message.get("data", {}).get("text", "")
                     language = message.get("data", {}).get("language", "ta")
                     
-                    # Process turn
-                    result = process_conversation_turn(
+                    # Process turn using async function
+                    result = await process_conversation_turn_async(
                         session_id=session_id,
                         text_input=text,
                         language=language,

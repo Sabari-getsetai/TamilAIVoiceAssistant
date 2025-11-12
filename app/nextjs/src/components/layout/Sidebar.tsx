@@ -20,8 +20,11 @@ import {
   Settings as SettingsIcon,
   Mic as VoiceIcon,
   Home as HomeIcon,
+  Business as OrganizationIcon,
+  People as PeopleIcon,
 } from '@mui/icons-material';
 import { usePathname, useRouter } from 'next/navigation';
+import OrganizationSwitcher from '../organization/OrganizationSwitcher';
 
 interface SidebarProps {
   open: boolean;
@@ -34,6 +37,8 @@ const menuItems = [
   { label: 'Admin Dashboard', icon: <DashboardIcon />, path: '/admin' },
   { label: 'Upload Documents', icon: <UploadIcon />, path: '/admin/upload' },
   { label: 'Manage Documents', icon: <DocumentsIcon />, path: '/admin/documents' },
+  { label: 'Manage Organization', icon: <OrganizationIcon />, path: '/admin/organizations' },
+  { label: 'Team Members', icon: <PeopleIcon />, path: '/admin/organizations/members' },
   { label: 'Statistics', icon: <StatsIcon />, path: '/admin/statistics' },
   { label: 'Settings', icon: <SettingsIcon />, path: '/admin/settings' },
 ];
@@ -82,6 +87,9 @@ export default function Sidebar({ open, onClose, width = 280 }: SidebarProps) {
       </Box>
 
       <Divider />
+
+      {/* Organization Switcher */}
+      <OrganizationSwitcher onNavigation={handleNavigation} />
 
       <List sx={{ flexGrow: 1 }}>
         {menuItems.map((item) => (

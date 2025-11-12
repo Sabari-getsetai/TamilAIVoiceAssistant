@@ -32,7 +32,7 @@ import {
   Assessment as AssessmentIcon,
 } from '@mui/icons-material';
 import { useRouter } from 'next/navigation';
-import MainLayout from '../../../components/layout/MainLayout';
+import ProtectedLayout from "../../../components/layout/ProtectedLayout";
 import { useStats } from '../../../hooks/useStats';
 import { formatNumber } from '../../../utils/format';
 
@@ -98,7 +98,8 @@ export default function StatisticsPage() {
   };
 
   return (
-    <MainLayout>
+    
+      <ProtectedLayout title="Statistics">
       <Container maxWidth="lg">
         {/* Header */}
         <Box sx={{ mb: 4, display: 'flex', alignItems: 'center', gap: 2 }}>
@@ -341,6 +342,7 @@ export default function StatisticsPage() {
           </>
         )}
       </Container>
-    </MainLayout>
+      </ProtectedLayout>
+    
   );
 }

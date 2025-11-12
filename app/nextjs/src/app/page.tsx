@@ -21,6 +21,7 @@ import {
 } from '@mui/icons-material';
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
+import AuthGuard from '@/components/auth/AuthGuard';
 
 interface Message {
   id: string;
@@ -767,7 +768,8 @@ export default function VoiceHomePage() {
   };
 
   return (
-    <Box
+    <AuthGuard requireOrganization={true}>
+      <Box
       sx={{
         minHeight: '100vh',
         background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
@@ -1258,5 +1260,6 @@ export default function VoiceHomePage() {
         }
       `}</style>
     </Box>
+    </AuthGuard>
   );
 }

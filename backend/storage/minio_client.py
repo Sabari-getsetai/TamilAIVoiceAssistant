@@ -7,24 +7,41 @@ This module provides:
 - File upload/download operations
 - Pre-signed URL generation for secure access
 - Error handling for storage operations
+- Retry mechanisms with exponential backoff
+- Docker service integration
 """
 
 import os
+import time
 import logging
 from datetime import timedelta
 from typing import Optional, Dict, Any, BinaryIO
 from io import BytesIO
 
 from minio import Minio
-from minio.error import S3Error, BucketAlreadyOwnedByYou, BucketAlreadyExists
+from minio.error import S3Error
 from urllib3.exceptions import MaxRetryError
 
 logger = logging.getLogger(__name__)
 
-# MinIO configuration from environment variables
-MINIO_ENDPOINT = os.getenv("MINIO_ENDPOINT", "localhost:9000")
-MINIO_ACCESS_KEY = os.getenv("MINIO_ACCESS_KEY", "tamil_admin")
-MINIO_SECRET_KEY = os.getenv("MINIO_SECRET_KEY", "tamil_minio_password_dev")
+# Detect if running in Docker
+IS_DOCKER = os.path.exists('/.dockerenv') or os.getenv('DOCKER_CONTAINER', 'false').lower() == 'true'
+
+# MinIO configuration with environment variable support
+MINIO_ENDPOINT = os.getenv("MINIO_ENDPOINT")
+
+if not MINIO_ENDPOINT:
+    # Fallback construction for endpoint if not set
+    minio_host = "minio" if IS_DOCKER else "localhost"
+    minio_port = os.getenv("MINIO_PORT", "9000")
+    MINIO_ENDPOINT = f"{minio_host}:{minio_port}"
+    logger.info(f"Constructed MINIO_ENDPOINT for {'Docker' if IS_DOCKER else 'local'} environment: {MINIO_ENDPOINT}")
+else:
+    logger.info(f"Using MINIO_ENDPOINT from environment variable: {MINIO_ENDPOINT}")
+
+# MinIO credentials - prioritize MINIO_ACCESS_KEY/SECRET_KEY, fallback to ROOT credentials
+MINIO_ACCESS_KEY = os.getenv("MINIO_ACCESS_KEY") or os.getenv("MINIO_ROOT_USER", "tamil_admin")
+MINIO_SECRET_KEY = os.getenv("MINIO_SECRET_KEY") or os.getenv("MINIO_ROOT_PASSWORD", "tamil_minio_password_dev")
 MINIO_SECURE = os.getenv("MINIO_SECURE", "false").lower() == "true"
 
 # Bucket names
@@ -65,6 +82,27 @@ def get_minio_client() -> Minio:
             raise ConnectionError(f"Cannot connect to MinIO server at {MINIO_ENDPOINT}")
 
     return _minio_client
+
+
+async def wait_for_minio(timeout: float = 60.0) -> bool:
+    """
+    Wait for MinIO to become available.
+    
+    Args:
+        timeout: Maximum time to wait in seconds
+        
+    Returns:
+        bool: True if MinIO is available, False if timeout
+    """
+    from infrastructure.retry import wait_for_service
+    
+    logger.info("Waiting for MinIO to become available...")
+    return await wait_for_service(
+        health_check=check_minio_health,
+        service_name="MinIO",
+        timeout=timeout,
+        check_interval=2.0
+    )
 
 
 async def init_buckets():
@@ -122,11 +160,55 @@ async def init_buckets():
             else:
                 logger.info(f"MinIO bucket already exists: {bucket_name}")
 
-        except (BucketAlreadyOwnedByYou, BucketAlreadyExists):
-            logger.info(f"MinIO bucket already exists: {bucket_name}")
         except S3Error as e:
-            logger.error(f"Error creating bucket {bucket_name}: {e}")
-            raise
+            # Handle bucket already exists errors
+            if "BucketAlreadyExists" in str(e) or "BucketAlreadyOwnedByYou" in str(e):
+                logger.info(f"MinIO bucket already exists: {bucket_name}")
+            else:
+                logger.error(f"Error creating bucket {bucket_name}: {e}")
+                raise
+
+
+async def init_buckets_with_retry(max_retries: int = 5, initial_delay: float = 1.0):
+    """
+    Initialize MinIO buckets with retry logic.
+    
+    Args:
+        max_retries: Maximum number of retry attempts
+        initial_delay: Initial delay between retries in seconds
+    """
+    from infrastructure.retry import retry_with_backoff, RetryConfig
+    
+    config = RetryConfig(
+        max_retries=max_retries,
+        initial_delay=initial_delay,
+        max_delay=30.0,
+        exponential_base=2.0,
+        jitter=True
+    )
+    
+    logger.info("Initializing MinIO buckets with retry logic...")
+    
+    try:
+        # First wait for MinIO to be available
+        minio_available = await wait_for_minio(timeout=60.0)
+        
+        if not minio_available:
+            logger.error("MinIO did not become available within timeout")
+            raise ConnectionError("MinIO connection timeout")
+        
+        # Then initialize with retry
+        await retry_with_backoff(
+            operation=init_buckets,
+            config=config,
+            operation_name="minio_bucket_initialization"
+        )
+        
+        logger.info("MinIO buckets initialized successfully with retry logic")
+        
+    except Exception as e:
+        logger.error(f"Failed to initialize MinIO buckets after retries: {e}")
+        raise
 
 
 def upload_file(
@@ -157,7 +239,7 @@ def upload_file(
             metadata = {}
 
         # Add upload timestamp
-        metadata["upload_timestamp"] = str(int(os.time()))
+        metadata["upload_timestamp"] = str(int(time.time()))
 
         # Get file size
         file_data.seek(0, 2)  # Seek to end
@@ -324,5 +406,53 @@ async def check_minio_health() -> bool:
         return True
 
     except Exception as e:
-        logger.error(f"MinIO health check failed: {e}")
+        logger.debug(f"MinIO health check failed: {e}")
         return False
+
+
+async def get_minio_info() -> dict:
+    """
+    Get MinIO connection information.
+    
+    Returns:
+        dict: MinIO connection details
+    """
+    try:
+        client = get_minio_client()
+        buckets = client.list_buckets()
+        
+        bucket_info = []
+        for bucket in buckets:
+            try:
+                # Get bucket stats
+                objects = list(client.list_objects(bucket.name, recursive=True))
+                total_size = sum(obj.size for obj in objects if obj.size)
+                
+                bucket_info.append({
+                    "name": bucket.name,
+                    "creation_date": bucket.creation_date.isoformat() if bucket.creation_date else None,
+                    "object_count": len(objects),
+                    "total_size_bytes": total_size,
+                })
+            except Exception as e:
+                bucket_info.append({
+                    "name": bucket.name,
+                    "error": str(e),
+                })
+        
+        return {
+            "connected": True,
+            "endpoint": MINIO_ENDPOINT,
+            "secure": MINIO_SECURE,
+            "is_docker": IS_DOCKER,
+            "buckets": bucket_info,
+        }
+        
+    except Exception as e:
+        logger.error(f"Error getting MinIO info: {e}")
+        return {
+            "connected": False,
+            "error": str(e),
+            "endpoint": MINIO_ENDPOINT,
+            "is_docker": IS_DOCKER,
+        }

@@ -6,6 +6,8 @@ This module provides:
 - Connection pooling
 - Health checking
 - Error handling for Redis operations
+- Retry mechanisms with exponential backoff
+- Docker service integration
 """
 
 import os
@@ -20,8 +22,24 @@ from redis.exceptions import ConnectionError, RedisError
 
 logger = logging.getLogger(__name__)
 
-# Redis configuration from environment variables
-REDIS_URL = os.getenv("REDIS_URL", "redis://:tamil_redis_password_dev@localhost:6379/0")
+# Detect if running in Docker
+IS_DOCKER = os.path.exists('/.dockerenv') or os.getenv('DOCKER_CONTAINER', 'false').lower() == 'true'
+
+# Redis configuration with environment variable support
+REDIS_URL = os.getenv("REDIS_URL")
+
+if not REDIS_URL:
+    # Fallback construction from individual components if REDIS_URL not set
+    redis_password = os.getenv("REDIS_PASSWORD", "tamil_redis_password_dev")
+    redis_host = "redis" if IS_DOCKER else "localhost"
+    redis_port = os.getenv("REDIS_PORT", "6379")
+    redis_db = os.getenv("REDIS_DB", "0")
+    
+    REDIS_URL = f"redis://:{redis_password}@{redis_host}:{redis_port}/{redis_db}"
+    logger.info(f"Constructed REDIS_URL from components for {'Docker' if IS_DOCKER else 'local'} environment")
+else:
+    logger.info("Using REDIS_URL from environment variable")
+
 REDIS_PASSWORD = os.getenv("REDIS_PASSWORD", "tamil_redis_password_dev")
 REDIS_MAX_CONNECTIONS = int(os.getenv("REDIS_MAX_CONNECTIONS", "20"))
 REDIS_SESSION_TTL = int(os.getenv("REDIS_SESSION_TTL", "7200"))  # 2 hours default
@@ -69,6 +87,27 @@ async def get_redis_client() -> redis.Redis:
     return _redis_client
 
 
+async def wait_for_redis(timeout: float = 60.0) -> bool:
+    """
+    Wait for Redis to become available.
+    
+    Args:
+        timeout: Maximum time to wait in seconds
+        
+    Returns:
+        bool: True if Redis is available, False if timeout
+    """
+    from infrastructure.retry import wait_for_service
+    
+    logger.info("Waiting for Redis to become available...")
+    return await wait_for_service(
+        health_check=check_redis_health,
+        service_name="Redis",
+        timeout=timeout,
+        check_interval=2.0
+    )
+
+
 async def init_redis():
     """
     Initialize Redis connection and perform setup tasks.
@@ -98,6 +137,48 @@ async def init_redis():
 
     except Exception as e:
         logger.error(f"Redis initialization failed: {e}")
+        raise
+
+
+async def init_redis_with_retry(max_retries: int = 5, initial_delay: float = 1.0):
+    """
+    Initialize Redis with retry logic.
+    
+    Args:
+        max_retries: Maximum number of retry attempts
+        initial_delay: Initial delay between retries in seconds
+    """
+    from infrastructure.retry import retry_with_backoff, RetryConfig
+    
+    config = RetryConfig(
+        max_retries=max_retries,
+        initial_delay=initial_delay,
+        max_delay=30.0,
+        exponential_base=2.0,
+        jitter=True
+    )
+    
+    logger.info("Initializing Redis with retry logic...")
+    
+    try:
+        # First wait for Redis to be available
+        redis_available = await wait_for_redis(timeout=60.0)
+        
+        if not redis_available:
+            logger.error("Redis did not become available within timeout")
+            raise ConnectionError("Redis connection timeout")
+        
+        # Then initialize with retry
+        await retry_with_backoff(
+            operation=init_redis,
+            config=config,
+            operation_name="redis_initialization"
+        )
+        
+        logger.info("Redis initialized successfully with retry logic")
+        
+    except Exception as e:
+        logger.error(f"Failed to initialize Redis after retries: {e}")
         raise
 
 
@@ -140,8 +221,57 @@ async def check_redis_health() -> bool:
         return bool(pong)
 
     except Exception as e:
-        logger.error(f"Redis health check failed: {e}")
+        logger.debug(f"Redis health check failed: {e}")
         return False
+
+
+async def get_redis_info() -> dict:
+    """
+    Get Redis connection information.
+    
+    Returns:
+        dict: Redis connection details
+    """
+    try:
+        client = await get_redis_client()
+        
+        # Get Redis server info
+        info = await client.info()
+        
+        # Get memory usage
+        memory_info = await client.info("memory")
+        
+        # Get keyspace info
+        keyspace_info = await client.info("keyspace")
+        
+        # Count total keys
+        total_keys = 0
+        for db_name, db_info in keyspace_info.items():
+            if db_name.startswith('db'):
+                keys_count = db_info.get('keys', 0)
+                total_keys += keys_count
+        
+        return {
+            "connected": True,
+            "redis_version": info.get("redis_version", "unknown"),
+            "redis_mode": info.get("redis_mode", "unknown"),
+            "uptime_seconds": info.get("uptime_in_seconds", 0),
+            "connected_clients": info.get("connected_clients", 0),
+            "used_memory_human": memory_info.get("used_memory_human", "unknown"),
+            "used_memory_peak_human": memory_info.get("used_memory_peak_human", "unknown"),
+            "total_keys": total_keys,
+            "url": REDIS_URL.split('@')[1] if '@' in REDIS_URL else "unknown",
+            "is_docker": IS_DOCKER,
+            "max_connections": REDIS_MAX_CONNECTIONS,
+        }
+        
+    except Exception as e:
+        logger.error(f"Error getting Redis info: {e}")
+        return {
+            "connected": False,
+            "error": str(e),
+            "is_docker": IS_DOCKER,
+        }
 
 
 # Utility functions for common Redis operations

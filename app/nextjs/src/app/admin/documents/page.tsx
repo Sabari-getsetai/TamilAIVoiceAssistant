@@ -40,7 +40,7 @@ import {
 } from '@mui/icons-material';
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import MainLayout from '../../../components/layout/MainLayout';
+import ProtectedLayout from '../../../components/layout/ProtectedLayout';
 import { useDocuments, useDeleteDocument, useGetDocument, useReindexDocument } from '../../../hooks/useDocuments';
 import { formatNumber } from '../../../utils/format';
 import type { Document } from '../../../types';
@@ -171,8 +171,8 @@ export default function DocumentsPage() {
   };
 
   return (
-    <MainLayout>
-      <Container maxWidth="lg">
+    <ProtectedLayout title="Documents">
+        <Container maxWidth="lg">
         {/* Header */}
         <Box sx={{ mb: 4, display: 'flex', alignItems: 'center', gap: 2 }}>
           <IconButton onClick={handleBack} sx={{ mr: 1 }}>
@@ -296,7 +296,7 @@ export default function DocumentsPage() {
                       <TableCell>
                         <Chip
                           label={document.status}
-                          color={getStatusColor(document.status) as any}
+                          color={getStatusColor(document.status) as 'default' | 'primary' | 'secondary' | 'error' | 'info' | 'success' | 'warning'}
                           size="small"
                           variant="outlined"
                         />
@@ -342,7 +342,7 @@ export default function DocumentsPage() {
             {/* No Search Results */}
             {filteredDocuments.length === 0 && searchTerm && (
               <Alert severity="info" sx={{ mt: 3 }}>
-                No documents found matching "{searchTerm}". Try a different search term.
+                No documents found matching &ldquo;{searchTerm}&rdquo;. Try a different search term.
               </Alert>
             )}
           </>
@@ -414,7 +414,7 @@ export default function DocumentsPage() {
                     </Typography>
                     <Chip
                       label={documentDetails.status}
-                      color={getStatusColor(documentDetails.status) as any}
+                      color={getStatusColor(documentDetails.status) as 'default' | 'primary' | 'secondary' | 'error' | 'info' | 'success' | 'warning'}
                       size="small"
                       variant="outlined"
                     />
@@ -456,7 +456,7 @@ export default function DocumentsPage() {
           </DialogTitle>
           <DialogContent>
             <Typography>
-              Are you sure you want to delete "{selectedDocument?.filename}"?
+              Are you sure you want to delete &ldquo;{selectedDocument?.filename}&rdquo;?
               This action cannot be undone and will remove the document from the knowledge base.
             </Typography>
           </DialogContent>
@@ -489,7 +489,7 @@ export default function DocumentsPage() {
           </DialogTitle>
           <DialogContent>
             <Typography>
-              Are you sure you want to re-index "{selectedDocument?.filename}"?
+              Are you sure you want to re-index &ldquo;{selectedDocument?.filename}&rdquo;?
               This will re-process the document and update its embeddings in the vector store.
             </Typography>
           </DialogContent>
@@ -527,7 +527,7 @@ export default function DocumentsPage() {
             {snackbar.message}
           </Alert>
         </Snackbar>
-      </Container>
-    </MainLayout>
+        </Container>
+    </ProtectedLayout>
   );
 }

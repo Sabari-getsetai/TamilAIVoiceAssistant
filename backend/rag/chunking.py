@@ -332,6 +332,38 @@ class TextChunker:
 
         return [s.strip() for s in sentences if s.strip()]
 
+    def split_text(self, text: str) -> List[str]:
+        """
+        Split text into chunks (compatibility method for document service)
+        
+        Args:
+            text: Text to split into chunks
+            
+        Returns:
+            List of text chunks as strings
+        """
+        chunks = self.chunk_text(text)
+        return [chunk.text for chunk in chunks]
+
+
+def get_text_chunker(chunk_size: Optional[int] = None, chunk_overlap: Optional[int] = None, strategy: str = "sentence"):
+    """
+    Factory function to get text chunker instance
+    
+    Args:
+        chunk_size: Target size for each chunk (default from settings)
+        chunk_overlap: Number of characters to overlap between chunks (default from settings)
+        strategy: Chunking strategy - "character", "sentence", or "paragraph"
+        
+    Returns:
+        Configured TextChunker instance
+    """
+    return TextChunker(
+        chunk_size=chunk_size,
+        chunk_overlap=chunk_overlap,
+        strategy=strategy
+    )
+
 
 if __name__ == "__main__":
     # Test chunking strategies

@@ -6,6 +6,8 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { ReactQueryDevtools } from '@tanstack/react-query-devtools';
 import { SnackbarProvider } from 'notistack';
 import { theme } from '../theme/theme';
+import { AuthProvider } from '../contexts/AuthContext';
+import { OrganizationProvider } from '../contexts/OrganizationContext';
 import { useState } from 'react';
 
 export default function RootLayout({
@@ -25,8 +27,8 @@ export default function RootLayout({
   return (
     <html lang="en">
       <head>
-        <title>Tamil AI Voice Assistant - Admin Dashboard</title>
-        <meta name="description" content="Admin dashboard for Tamil AI Voice Assistant" />
+        <title>Tamil AI Voice Assistant</title>
+        <meta name="description" content="Tamil AI Voice Assistant with authentication" />
         <meta name="viewport" content="width=device-width, initial-scale=1" />
       </head>
       <body>
@@ -41,7 +43,11 @@ export default function RootLayout({
               }}
               autoHideDuration={4000}
             >
-              {children}
+              <AuthProvider>
+                <OrganizationProvider>
+                  {children}
+                </OrganizationProvider>
+              </AuthProvider>
             </SnackbarProvider>
           </ThemeProvider>
           <ReactQueryDevtools initialIsOpen={false} />

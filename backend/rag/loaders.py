@@ -364,6 +364,22 @@ class DocumentLoaderFactory:
         return documents
 
 
+def get_document_loader(file_path: str):
+    """
+    Factory function to get document loader for a file
+    
+    Args:
+        file_path: Path to the file to load
+        
+    Returns:
+        Loader instance that can load the document
+        
+    Raises:
+        ValueError: If file type not supported
+    """
+    return DocumentLoaderFactory.create_loader(Path(file_path))
+
+
 if __name__ == "__main__":
     # Test document loaders
     print("="*60)

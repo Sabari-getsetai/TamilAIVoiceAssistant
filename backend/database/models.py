@@ -41,9 +41,9 @@ Base = declarative_base()
 # Enums
 class UserRole(str, Enum):
     """User roles in the system."""
-    USER = "user"
-    ADMIN = "admin"
-    ORGANIZATION_ADMIN = "organization_admin"
+    USER = "USER"
+    ADMIN = "ADMIN"
+    ORGANIZATION_ADMIN = "ORGANIZATION_ADMIN"
 
 
 class DocumentStatus(str, Enum):
@@ -71,6 +71,7 @@ class AudioFileType(str, Enum):
 class OrganizationRole(str, Enum):
     """User roles within an organization."""
     MEMBER = "member"
+    ORG_ADMIN = "ORG_ADMIN"  # Organization admin with limited privileges
     ADMIN = "admin"
     OWNER = "owner"
 
@@ -97,17 +98,35 @@ class User(Base):
     role: Mapped[UserRole] = mapped_column(SQLEnum(UserRole), default=UserRole.USER, nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     is_verified: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    active_organization_id: Mapped[Optional[str]] = mapped_column(UUID(as_uuid=False), ForeignKey("organizations.id"))
+    max_organizations_allowed: Mapped[int] = mapped_column(Integer, default=1, nullable=False)  # Tier-based organization limit
+    subscription_tier: Mapped[str] = mapped_column(String(50), default="free", nullable=False, index=True)  # free, pro, enterprise
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, onupdate=utc_now)
     last_login: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
     preferences: Mapped[Optional[dict]] = mapped_column(JSON)
 
     # Relationships
+    active_organization: Mapped[Optional["Organization"]] = relationship(
+        "Organization", 
+        foreign_keys=[active_organization_id], 
+        post_update=True,
+        lazy="select"
+    )
     documents: Mapped[List["Document"]] = relationship("Document", back_populates="user", cascade="all, delete-orphan")
     conversation_sessions: Mapped[List["ConversationSession"]] = relationship("ConversationSession", back_populates="user", cascade="all, delete-orphan")
     audio_files: Mapped[List["AudioFile"]] = relationship("AudioFile", back_populates="user", cascade="all, delete-orphan")
-    organization_memberships: Mapped[List["OrganizationMember"]] = relationship("OrganizationMember", back_populates="user", cascade="all, delete-orphan")
-    created_organizations: Mapped[List["Organization"]] = relationship("Organization", back_populates="creator")
+    organization_memberships: Mapped[List["OrganizationMember"]] = relationship(
+        "OrganizationMember", 
+        back_populates="user", 
+        cascade="all, delete-orphan", 
+        foreign_keys="[OrganizationMember.user_id]"
+    )
+    created_organizations: Mapped[List["Organization"]] = relationship(
+        "Organization", 
+        back_populates="creator", 
+        foreign_keys="[Organization.creator_id]"
+    )
 
     def __repr__(self):
         return f"<User(id={self.id}, email={self.email}, username={self.username})>"
@@ -120,14 +139,24 @@ class Organization(Base):
     id: Mapped[str] = mapped_column(UUID(as_uuid=False), primary_key=True, default=generate_uuid)
     name: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
     description: Mapped[Optional[str]] = mapped_column(Text)
+    website: Mapped[Optional[str]] = mapped_column(String(255))
+    industry: Mapped[Optional[str]] = mapped_column(String(100))
+    size: Mapped[str] = mapped_column(String(50), default="startup", nullable=False)  # startup, small, medium, large, enterprise
+    timezone: Mapped[str] = mapped_column(String(50), default="UTC", nullable=False)
     creator_id: Mapped[str] = mapped_column(UUID(as_uuid=False), ForeignKey("users.id"), nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    settings: Mapped[Optional[dict]] = mapped_column(JSON, default=dict)
+    billing_email: Mapped[Optional[str]] = mapped_column(String(255))
+    subscription_plan: Mapped[str] = mapped_column(String(50), default="free", nullable=False)
+    subscription_status: Mapped[str] = mapped_column(String(50), default="active", nullable=False)
+    tier_type: Mapped[str] = mapped_column(String(50), default="free", nullable=False, index=True)  # free, pro, enterprise
+    max_organizations_per_user: Mapped[int] = mapped_column(Integer, default=1, nullable=False)  # Tier-based limit
+    trial_ends_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, onupdate=utc_now)
-    settings: Mapped[Optional[dict]] = mapped_column(JSON)
 
     # Relationships
-    creator: Mapped["User"] = relationship("User", back_populates="created_organizations")
+    creator: Mapped["User"] = relationship("User", back_populates="created_organizations", foreign_keys=[creator_id])
     members: Mapped[List["OrganizationMember"]] = relationship("OrganizationMember", back_populates="organization", cascade="all, delete-orphan")
 
     def __repr__(self):
@@ -147,8 +176,8 @@ class OrganizationMember(Base):
 
     # Relationships
     organization: Mapped["Organization"] = relationship("Organization", back_populates="members")
-    user: Mapped["User"] = relationship("User", back_populates="organization_memberships")
-    inviter: Mapped[Optional["User"]] = relationship("User", foreign_keys=[invited_by])
+    user: Mapped["User"] = relationship("User", back_populates="organization_memberships", foreign_keys="[OrganizationMember.user_id]")
+    inviter: Mapped[Optional["User"]] = relationship("User", foreign_keys="[OrganizationMember.invited_by]")
 
     # Constraints
     __table_args__ = (
@@ -165,6 +194,7 @@ class Document(Base):
 
     id: Mapped[str] = mapped_column(UUID(as_uuid=False), primary_key=True, default=generate_uuid)
     user_id: Mapped[str] = mapped_column(UUID(as_uuid=False), ForeignKey("users.id"), nullable=False, index=True)
+    organization_id: Mapped[str] = mapped_column(UUID(as_uuid=False), ForeignKey("organizations.id"), nullable=False, index=True)
     filename: Mapped[str] = mapped_column(String(255), nullable=False)
     original_filename: Mapped[str] = mapped_column(String(255), nullable=False)
     minio_key: Mapped[str] = mapped_column(String(500), nullable=False)  # MinIO object key
@@ -175,16 +205,18 @@ class Document(Base):
     upload_date: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False)
     processed_date: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
     session_id: Mapped[Optional[str]] = mapped_column(String(100))  # For grouping during ingestion
-    metadata: Mapped[Optional[dict]] = mapped_column(JSON)
+    document_metadata: Mapped[Optional[dict]] = mapped_column(JSON)
     error_message: Mapped[Optional[str]] = mapped_column(Text)
 
     # Relationships
     user: Mapped["User"] = relationship("User", back_populates="documents")
+    organization: Mapped["Organization"] = relationship("Organization")
     chunks: Mapped[List["DocumentChunk"]] = relationship("DocumentChunk", back_populates="document", cascade="all, delete-orphan")
 
     # Indexes
     __table_args__ = (
         Index("ix_documents_user_status", "user_id", "status"),
+        Index("ix_documents_org_status", "organization_id", "status"),
         Index("ix_documents_session", "session_id"),
     )
 
@@ -202,7 +234,7 @@ class DocumentChunk(Base):
     chunk_index: Mapped[int] = mapped_column(Integer, nullable=False)
     text: Mapped[str] = mapped_column(Text, nullable=False)
     embedding: Mapped[Optional[List[float]]] = mapped_column(Vector(384))  # Embedding dimension for sentence-transformers
-    metadata: Mapped[Optional[dict]] = mapped_column(JSON)
+    chunk_metadata: Mapped[Optional[dict]] = mapped_column(JSON)
     indexed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False)
 
     # Relationships
@@ -226,6 +258,7 @@ class ConversationSession(Base):
 
     id: Mapped[str] = mapped_column(UUID(as_uuid=False), primary_key=True, default=generate_uuid)
     user_id: Mapped[str] = mapped_column(UUID(as_uuid=False), ForeignKey("users.id"), nullable=False, index=True)
+    organization_id: Mapped[str] = mapped_column(UUID(as_uuid=False), ForeignKey("organizations.id"), nullable=False, index=True)
     language: Mapped[str] = mapped_column(String(10), default="ta", nullable=False)  # Tamil by default
     rag_enabled: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     status: Mapped[SessionStatus] = mapped_column(SQLEnum(SessionStatus), default=SessionStatus.ACTIVE, nullable=False, index=True)
@@ -237,11 +270,13 @@ class ConversationSession(Base):
 
     # Relationships
     user: Mapped["User"] = relationship("User", back_populates="conversation_sessions")
+    organization: Mapped["Organization"] = relationship("Organization")
     turns: Mapped[List["ConversationTurn"]] = relationship("ConversationTurn", back_populates="session", cascade="all, delete-orphan")
 
     # Indexes
     __table_args__ = (
         Index("ix_sessions_user_status", "user_id", "status"),
+        Index("ix_sessions_org_status", "organization_id", "status"),
         Index("ix_sessions_user_activity", "user_id", "last_activity"),
     )
 
@@ -263,7 +298,7 @@ class ConversationTurn(Base):
     retrieved_chunks: Mapped[Optional[List[str]]] = mapped_column(JSON)  # List of chunk IDs used for RAG
     processing_time: Mapped[Optional[dict]] = mapped_column(JSON)  # Timing information
     timestamp: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False, index=True)
-    metadata: Mapped[Optional[dict]] = mapped_column(JSON)
+    turn_metadata: Mapped[Optional[dict]] = mapped_column(JSON)
 
     # Relationships
     session: Mapped["ConversationSession"] = relationship("ConversationSession", back_populates="turns")
@@ -285,6 +320,7 @@ class AudioFile(Base):
 
     id: Mapped[str] = mapped_column(UUID(as_uuid=False), primary_key=True, default=generate_uuid)
     user_id: Mapped[str] = mapped_column(UUID(as_uuid=False), ForeignKey("users.id"), nullable=False, index=True)
+    organization_id: Mapped[str] = mapped_column(UUID(as_uuid=False), ForeignKey("organizations.id"), nullable=False, index=True)
     session_id: Mapped[Optional[str]] = mapped_column(UUID(as_uuid=False), ForeignKey("conversation_sessions.id"), index=True)
     file_type: Mapped[AudioFileType] = mapped_column(SQLEnum(AudioFileType), nullable=False, index=True)
     minio_key: Mapped[str] = mapped_column(String(500), nullable=False, unique=True)
@@ -294,16 +330,18 @@ class AudioFile(Base):
     sample_rate: Mapped[Optional[int]] = mapped_column(Integer)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False)
     expires_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), index=True)  # For automatic cleanup
-    metadata: Mapped[Optional[dict]] = mapped_column(JSON)
+    audio_metadata: Mapped[Optional[dict]] = mapped_column(JSON)
 
     # Relationships
     user: Mapped["User"] = relationship("User", back_populates="audio_files")
+    organization: Mapped["Organization"] = relationship("Organization")
     session: Mapped[Optional["ConversationSession"]] = relationship("ConversationSession")
 
     # Indexes
     __table_args__ = (
         Index("ix_audio_user_session", "user_id", "session_id"),
         Index("ix_audio_user_type", "user_id", "file_type"),
+        Index("ix_audio_org_type", "organization_id", "file_type"),
         Index("ix_audio_expires", "expires_at"),  # For cleanup jobs
     )
 

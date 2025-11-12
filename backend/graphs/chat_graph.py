@@ -95,206 +95,76 @@ class ChatState(TypedDict):
     session_duration: float
 
 
-class SessionManager:
+# Helper function to convert database session to ChatState format
+def _convert_db_session_to_chat_state(session_data: Dict[str, Any], history: List[Dict[str, Any]]) -> ChatState:
     """
-    Manages chat sessions with automatic cleanup and persistence
+    Convert database session format to ChatState format.
     
-    Features:
-    - Session creation and retrieval
-    - Automatic session cleanup
-    - Concurrent session support
-    - Session analytics
+    Args:
+        session_data: Session data from database
+        history: Conversation history from database
+        
+    Returns:
+        ChatState dictionary
     """
+    from datetime import datetime
     
-    def __init__(self):
-        self.sessions: Dict[str, ChatState] = {}
-        self.session_timeout = timedelta(minutes=settings.CHAT_SESSION_TIMEOUT_MINUTES)
-        
-    def create_session(
-        self,
-        user_id: Optional[str] = None,
-        language: str = "ta",
-        rag_enabled: bool = True
-    ) -> str:
-        """
-        Create a new chat session
-        
-        Args:
-            user_id: Optional user identifier
-            language: Conversation language (ta, en)
-            rag_enabled: Enable RAG document retrieval
-            
-        Returns:
-            Session ID
-        """
-        session_id = str(uuid.uuid4())
-        now = datetime.now()
-        
-        initial_state: ChatState = {
-            # Session management
-            "session_id": session_id,
-            "user_id": user_id,
-            "created_at": now,
-            "last_activity": now,
-            
-            # Current turn
-            "audio_input": None,
-            "audio_input_path": None,
-            "user_text": "",
-            "assistant_text": "",
-            "audio_output": None,
-            "audio_output_path": None,
-            
-            # Conversation history
-            "conversation_history": [],
-            
-            # RAG context
-            "retrieved_documents": [],
-            "context_used": "",
-            "rag_enabled": rag_enabled,
-            
-            # Processing status
-            "current_step": "initialized",
-            "error_message": None,
-            "processing_time": {},
-            
-            # Configuration
-            "language": language,
-            "max_history_turns": settings.CHAT_MAX_HISTORY_TURNS,
-            
-            # Metadata
-            "total_turns": 0,
-            "session_duration": 0.0
-        }
-        
-        self.sessions[session_id] = initial_state
-        logger.info(f"Created new session: {session_id}")
-        
-        return session_id
+    created_at = datetime.fromisoformat(session_data["created_at"].replace("Z", "+00:00"))
+    last_activity = datetime.fromisoformat(session_data["last_activity"].replace("Z", "+00:00"))
     
-    def get_session(self, session_id: str) -> Optional[ChatState]:
-        """
-        Retrieve session state
-        
-        Args:
-            session_id: Session identifier
-            
-        Returns:
-            ChatState or None if not found
-        """
-        if session_id in self.sessions:
-            session = self.sessions[session_id]
-            
-            # Check if session has expired
-            if datetime.now() - session["last_activity"] > self.session_timeout:
-                logger.info(f"Session expired: {session_id}")
-                self.delete_session(session_id)
-                return None
-            
-            return session
-        
-        return None
+    metadata = session_data.get("session_metadata", {})
     
-    def update_session(self, session_id: str, state: ChatState) -> bool:
-        """
-        Update session state
+    return {
+        # Session management
+        "session_id": session_data["session_id"],
+        "user_id": session_data["user_id"],
+        "created_at": created_at,
+        "last_activity": last_activity,
         
-        Args:
-            session_id: Session identifier
-            state: Updated state
-            
-        Returns:
-            True if successful
-        """
-        if session_id in self.sessions:
-            state["last_activity"] = datetime.now()
-            state["session_duration"] = (
-                state["last_activity"] - state["created_at"]
-            ).total_seconds()
-            
-            self.sessions[session_id] = state
-            return True
+        # Current turn (empty for existing sessions)
+        "audio_input": None,
+        "audio_input_path": None,
+        "user_text": "",
+        "assistant_text": "",
+        "audio_output": None,
+        "audio_output_path": None,
         
-        return False
-    
-    def delete_session(self, session_id: str) -> bool:
-        """
-        Delete session
+        # Conversation history
+        "conversation_history": history,
         
-        Args:
-            session_id: Session identifier
-            
-        Returns:
-            True if deleted
-        """
-        if session_id in self.sessions:
-            del self.sessions[session_id]
-            logger.info(f"Deleted session: {session_id}")
-            return True
+        # RAG context
+        "retrieved_documents": [],
+        "context_used": "",
+        "rag_enabled": session_data["rag_enabled"],
         
-        return False
-    
-    def cleanup_expired_sessions(self) -> int:
-        """
-        Clean up expired sessions
+        # Processing status
+        "current_step": metadata.get("current_step", "ready"),
+        "error_message": metadata.get("error_message"),
+        "processing_time": metadata.get("processing_time", {}),
         
-        Returns:
-            Number of sessions cleaned up
-        """
-        now = datetime.now()
-        expired_sessions = []
+        # Configuration
+        "language": session_data["language"],
+        "max_history_turns": settings.CHAT_MAX_HISTORY_TURNS,
         
-        for session_id, session in self.sessions.items():
-            if now - session["last_activity"] > self.session_timeout:
-                expired_sessions.append(session_id)
-        
-        for session_id in expired_sessions:
-            self.delete_session(session_id)
-        
-        if expired_sessions:
-            logger.info(f"Cleaned up {len(expired_sessions)} expired sessions")
-        
-        return len(expired_sessions)
-    
-    def list_active_sessions(self) -> List[str]:
-        """
-        Get list of active session IDs
-        
-        Returns:
-            List of session IDs
-        """
-        self.cleanup_expired_sessions()
-        return list(self.sessions.keys())
-    
-    def get_session_stats(self) -> Dict[str, Any]:
-        """
-        Get session statistics
-        
-        Returns:
-            Session statistics
-        """
-        self.cleanup_expired_sessions()
-        
-        if not self.sessions:
-            return {
-                "total_sessions": 0,
-                "average_duration": 0.0,
-                "total_turns": 0
-            }
-        
-        total_duration = sum(s["session_duration"] for s in self.sessions.values())
-        total_turns = sum(s["total_turns"] for s in self.sessions.values())
-        
-        return {
-            "total_sessions": len(self.sessions),
-            "average_duration": total_duration / len(self.sessions),
-            "total_turns": total_turns,
-            "average_turns_per_session": total_turns / len(self.sessions) if self.sessions else 0
-        }
+        # Metadata
+        "total_turns": session_data["total_turns"],
+        "session_duration": session_data["duration_seconds"]
+    }
 
 
-# Global session manager
-session_manager = SessionManager()
+# Import database session manager
+from backend.services.session_service import get_session_manager
+from backend.database.connection import get_db
+
+# Global session manager instance
+_session_manager = None
+
+async def get_or_create_session_manager():
+    """Get or create global session manager instance."""
+    global _session_manager
+    if _session_manager is None:
+        _session_manager = await get_session_manager()
+    return _session_manager
 
 
 def transcribe_node(state: ChatState) -> ChatState:
@@ -726,6 +596,143 @@ def create_chat_graph() -> StateGraph:
 chat_graph = create_chat_graph()
 
 
+async def process_conversation_turn_async(
+    session_id: str,
+    audio_input_path: Optional[str] = None,
+    text_input: Optional[str] = None,
+    language: str = "ta",
+    db: Optional[Any] = None
+) -> Dict[str, Any]:
+    """
+    Process a complete conversation turn (async version with database persistence).
+    
+    Args:
+        session_id: Session identifier
+        audio_input_path: Path to user's audio input (optional if text_input provided)
+        text_input: Direct text input (optional if audio_input_path provided)
+        language: Language code
+        db: Database session (optional)
+        
+    Returns:
+        Processing results
+    """
+    try:
+        # Get session manager
+        session_manager = await get_or_create_session_manager()
+        
+        # Get database session if not provided
+        db_session = db
+        should_close_db = False
+        if db_session is None:
+            db_session = await anext(get_db())
+            should_close_db = True
+        
+        try:
+            # Get session from database
+            session_data = await session_manager.get_session(session_id, db=db_session)
+            if not session_data:
+                logger.error(f"Session not found: {session_id}")
+                return {
+                    "status": "error",
+                    "error": "Session not found",
+                    "session_id": session_id
+                }
+            
+            # Get conversation history
+            history = await session_manager.get_conversation_history(session_id, db=db_session)
+            
+            # Convert to ChatState format
+            state = _convert_db_session_to_chat_state(session_data, history)
+            
+            # Validate input
+            if not audio_input_path and not text_input:
+                return {
+                    "status": "error",
+                    "error": "Either audio_input_path or text_input must be provided",
+                    "session_id": session_id
+                }
+            
+            # Set up current turn
+            state["audio_input_path"] = audio_input_path
+            state["language"] = language
+            state["user_text"] = text_input or ""
+            state["assistant_text"] = ""
+            state["audio_output_path"] = None
+            state["error_message"] = None
+            state["processing_time"] = {}
+            
+            # Process conversation turn
+            if text_input:
+                # Skip transcription, go directly to RAG/generation
+                logger.info(f"Processing text input for session {state['session_id']}")
+                
+                # Retrieve (if RAG enabled)
+                result = retrieve_node(state)
+                
+                # Generate
+                result = generate_node(result)
+                
+                # Synthesize
+                result = synthesize_node(result)
+                
+                # Update history (in-memory)
+                result = history_node(result)
+            else:
+                # Process through full graph (including transcription)
+                compiled_graph = chat_graph.compile()
+                result = compiled_graph.invoke(state)
+            
+            # Persist conversation turn to database
+            if result["user_text"] and result["assistant_text"]:
+                # Extract retrieved chunk IDs
+                retrieved_chunks = [
+                    doc.get("metadata", {}).get("chunk_id", f"chunk_{i}")
+                    for i, doc in enumerate(result["retrieved_documents"])
+                ]
+                
+                turn_id = await session_manager.add_conversation_turn(
+                    session_id=session_id,
+                    user_text=result["user_text"],
+                    assistant_text=result["assistant_text"],
+                    audio_input_key=audio_input_path,
+                    audio_output_key=result.get("audio_output_path"),
+                    retrieved_chunks=retrieved_chunks,
+                    processing_time=result["processing_time"],
+                    db=db_session
+                )
+                
+                if turn_id:
+                    logger.info(f"Persisted conversation turn {turn_id} to database")
+                else:
+                    logger.warning(f"Failed to persist conversation turn to database")
+            
+            # Return results
+            return {
+                "status": "completed",
+                "session_id": session_id,
+                "user_text": result["user_text"],
+                "assistant_text": result["assistant_text"],
+                "audio_output_path": result.get("audio_output_path"),
+                "processing_time": result["processing_time"],
+                "total_time": sum(result["processing_time"].values()),
+                "retrieved_documents": len(result["retrieved_documents"]),
+                "error": result.get("error_message")
+            }
+            
+        finally:
+            if should_close_db:
+                await db_session.close()
+        
+    except Exception as e:
+        error_msg = f"Conversation processing failed: {str(e)}"
+        logger.error(error_msg, exc_info=True)
+        return {
+            "status": "error",
+            "error": error_msg,
+            "session_id": session_id
+        }
+
+
 def process_conversation_turn(
     session_id: str,
     audio_input_path: Optional[str] = None,
@@ -733,7 +740,7 @@ def process_conversation_turn(
     language: str = "ta"
 ) -> Dict[str, Any]:
     """
-    Process a complete conversation turn
+    Process a complete conversation turn (sync wrapper for backward compatibility).
     
     Args:
         session_id: Session identifier
@@ -744,83 +751,15 @@ def process_conversation_turn(
     Returns:
         Processing results
     """
+    # Run async function in new event loop
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
     try:
-        # Get or create session
-        state = session_manager.get_session(session_id)
-        if not state:
-            logger.error(f"Session not found: {session_id}")
-            return {
-                "status": "error",
-                "error": "Session not found",
-                "session_id": session_id
-            }
-        
-        # Validate input
-        if not audio_input_path and not text_input:
-            return {
-                "status": "error",
-                "error": "Either audio_input_path or text_input must be provided",
-                "session_id": session_id
-            }
-        
-        # Set up current turn
-        state["audio_input_path"] = audio_input_path
-        state["language"] = language
-        state["user_text"] = text_input or ""  # Use text_input directly if provided
-        state["assistant_text"] = ""
-        state["audio_output_path"] = None
-        state["error_message"] = None
-        state["processing_time"] = {}
-        
-        # If text input is provided, skip transcription
-        if text_input:
-            # Skip transcription, go directly to RAG/generation
-            logger.info(f"Processing text input for session {state['session_id']}")
-            
-            # Process retrieve -> generate -> synthesize -> history
-            start_time = time.time()
-            
-            # Retrieve (if RAG enabled)
-            result = retrieve_node(state)
-            
-            # Generate
-            result = generate_node(result)
-            
-            # Synthesize
-            result = synthesize_node(result)
-            
-            # Update history
-            result = history_node(result)
-            
-        else:
-            # Process through full graph (including transcription)
-            compiled_graph = chat_graph.compile()
-            result = compiled_graph.invoke(state)
-        
-        # Update session
-        session_manager.update_session(session_id, result)
-        
-        # Return results
-        return {
-            "status": "completed",
-            "session_id": session_id,
-            "user_text": result["user_text"],
-            "assistant_text": result["assistant_text"],
-            "audio_output_path": result.get("audio_output_path"),
-            "processing_time": result["processing_time"],
-            "total_time": sum(result["processing_time"].values()),
-            "retrieved_documents": len(result["retrieved_documents"]),
-            "error": result.get("error_message")
-        }
-        
-    except Exception as e:
-        error_msg = f"Conversation processing failed: {str(e)}"
-        logger.error(error_msg)
-        return {
-            "status": "error",
-            "error": error_msg,
-            "session_id": session_id
-        }
+        return loop.run_until_complete(
+            process_conversation_turn_async(session_id, audio_input_path, text_input, language)
+        )
+    finally:
+        loop.close()
 
 
 def create_session(
@@ -829,7 +768,7 @@ def create_session(
     rag_enabled: bool = True
 ) -> str:
     """
-    Create a new conversation session
+    Create a new conversation session (sync wrapper).
     
     Args:
         user_id: Optional user identifier
@@ -839,16 +778,20 @@ def create_session(
     Returns:
         Session ID
     """
-    return session_manager.create_session(
-        user_id=user_id,
-        language=language,
-        rag_enabled=rag_enabled
-    )
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    try:
+        async def _create():
+            manager = await get_or_create_session_manager()
+            return await manager.create_session(user_id, language, rag_enabled)
+        return loop.run_until_complete(_create())
+    finally:
+        loop.close()
 
 
 def get_session_info(session_id: str) -> Optional[Dict[str, Any]]:
     """
-    Get session information
+    Get session information (sync wrapper).
     
     Args:
         session_id: Session identifier
@@ -856,26 +799,20 @@ def get_session_info(session_id: str) -> Optional[Dict[str, Any]]:
     Returns:
         Session info or None
     """
-    state = session_manager.get_session(session_id)
-    if not state:
-        return None
-    
-    return {
-        "session_id": state["session_id"],
-        "user_id": state["user_id"],
-        "created_at": state["created_at"].isoformat(),
-        "last_activity": state["last_activity"].isoformat(),
-        "total_turns": state["total_turns"],
-        "session_duration": state["session_duration"],
-        "language": state["language"],
-        "rag_enabled": state["rag_enabled"],
-        "current_step": state["current_step"]
-    }
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    try:
+        async def _get():
+            manager = await get_or_create_session_manager()
+            return await manager.get_session(session_id)
+        return loop.run_until_complete(_get())
+    finally:
+        loop.close()
 
 
 def delete_session(session_id: str) -> bool:
     """
-    Delete a conversation session
+    Delete a conversation session (sync wrapper).
     
     Args:
         session_id: Session identifier
@@ -883,12 +820,20 @@ def delete_session(session_id: str) -> bool:
     Returns:
         True if deleted
     """
-    return session_manager.delete_session(session_id)
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    try:
+        async def _delete():
+            manager = await get_or_create_session_manager()
+            return await manager.delete_session(session_id)
+        return loop.run_until_complete(_delete())
+    finally:
+        loop.close()
 
 
 def get_conversation_history(session_id: str) -> Optional[List[Dict[str, Any]]]:
     """
-    Get conversation history for a session
+    Get conversation history for a session (sync wrapper).
     
     Args:
         session_id: Session identifier
@@ -896,67 +841,73 @@ def get_conversation_history(session_id: str) -> Optional[List[Dict[str, Any]]]:
     Returns:
         Conversation history or None
     """
-    state = session_manager.get_session(session_id)
-    if not state:
-        return None
-    
-    return state["conversation_history"]
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    try:
+        async def _get_history():
+            manager = await get_or_create_session_manager()
+            return await manager.get_conversation_history(session_id)
+        return loop.run_until_complete(_get_history())
+    finally:
+        loop.close()
 
 
 def list_active_sessions() -> Dict[str, Dict[str, Any]]:
     """
-    Get all active sessions with their info
+    Get all active sessions with their info (sync wrapper).
     
     Returns:
         Dictionary of session_id -> session_info
     """
-    session_manager.cleanup_expired_sessions()
-    result = {}
-    for session_id in session_manager.sessions.keys():
-        info = get_session_info(session_id)
-        if info:
-            result[session_id] = info
-    return result
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    try:
+        async def _list():
+            manager = await get_or_create_session_manager()
+            # Get all active sessions from database
+            db_session = await anext(get_db())
+            try:
+                sessions = await manager.list_user_sessions(
+                    user_id=None,  # Get all sessions
+                    status_filter=None,
+                    limit=100,
+                    db=db_session
+                )
+                result = {}
+                for session in sessions:
+                    result[session["session_id"]] = session
+                return result
+            finally:
+                await db_session.close()
+        return loop.run_until_complete(_list())
+    finally:
+        loop.close()
 
 
 def get_session_stats() -> Dict[str, Any]:
     """
-    Get global session statistics
+    Get global session statistics (sync wrapper).
     
     Returns:
         Session statistics with format expected by API
     """
-    session_manager.cleanup_expired_sessions()
-    
-    if not session_manager.sessions:
-        return {
-            "total_sessions": 0,
-            "active_sessions": 0,
-            "total_turns": 0,
-            "average_session_duration": 0.0,
-            "average_turn_time": 0.0
-        }
-    
-    total_turns = sum(s["total_turns"] for s in session_manager.sessions.values())
-    total_duration = sum(s["session_duration"] for s in session_manager.sessions.values())
-    
-    # Calculate average turn time from processing times
-    all_turn_times = []
-    for session in session_manager.sessions.values():
-        for turn in session["conversation_history"]:
-            turn_time = sum(turn.get("processing_time", {}).values())
-            if turn_time > 0:
-                all_turn_times.append(turn_time)
-    
-    avg_turn_time = sum(all_turn_times) / len(all_turn_times) if all_turn_times else 0.0
-    
-    return {
-        "total_sessions": len(session_manager.sessions),
-        "active_sessions": len(session_manager.sessions),
-        "total_turns": total_turns,
-        "average_session_duration": total_duration / len(session_manager.sessions),
-        "average_turn_time": avg_turn_time
-    }
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    try:
+        async def _get_stats():
+            manager = await get_or_create_session_manager()
+            # For now, return basic stats
+            # TODO: Implement proper stats aggregation from database
+            return {
+                "total_sessions": 0,
+                "active_sessions": 0,
+                "total_turns": 0,
+                "average_session_duration": 0.0,
+                "average_turn_time": 0.0
+            }
+        return loop.run_until_complete(_get_stats())
+    finally:
+        loop.close()
 
 
 if __name__ == "__main__":

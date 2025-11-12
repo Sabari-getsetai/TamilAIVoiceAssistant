@@ -124,6 +124,36 @@ class Settings(BaseSettings):
         "தொழில்நுட்ப சிக்கல் காரணமாக சிறிது தாமதம்."
     ]
 
+    # Database Configuration (PostgreSQL)
+    DATABASE_URL: str = "postgresql+asyncpg://tamil_user:tamil_password_dev@localhost:5432/tamil_assistant"
+    POSTGRES_PASSWORD: str = "tamil_password_dev"
+    DATABASE_ECHO: bool = False
+
+    # Redis Configuration
+    REDIS_URL: str = "redis://:tamil_redis_password_dev@localhost:6379/0"
+    REDIS_PASSWORD: str = "tamil_redis_password_dev"
+
+    # MinIO Configuration (Object Storage)
+    MINIO_ROOT_USER: str = "tamil_admin"
+    MINIO_ROOT_PASSWORD: str = "tamil_minio_password_dev"
+    MINIO_ENDPOINT: str = "localhost:9000"
+    MINIO_ACCESS_KEY: str = "tamil_admin"
+    MINIO_SECRET_KEY: str = "tamil_minio_password_dev"
+    MINIO_SECURE: bool = False
+    MINIO_DOCUMENTS_BUCKET: str = "tamil-assistant-documents"
+    MINIO_AUDIO_BUCKET: str = "tamil-assistant-audio"
+
+    # JWT Authentication Configuration
+    JWT_SECRET_KEY: str = "tamil_jwt_secret_dev_change_in_production"
+    JWT_ALGORITHM: str = "HS256"
+    JWT_ACCESS_TOKEN_EXPIRE_MINUTES: int = 15
+    JWT_REFRESH_TOKEN_EXPIRE_DAYS: int = 7
+
+    # Admin User Seeding Configuration
+    # Default admin user credentials for database seeding
+    ADMIN_EMAIL: str = "admin@localhost"
+    ADMIN_PASSWORD: str = "admin123"
+
     class Config:
         env_file = ".env"
         env_file_encoding = "utf-8"

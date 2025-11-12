@@ -26,7 +26,7 @@ import {
 import { useCallback } from 'react';
 import { useDropzone } from 'react-dropzone';
 import { useSnackbar } from 'notistack';
-import MainLayout from '../../../components/layout/MainLayout';
+import ProtectedLayout from "../../../components/layout/ProtectedLayout";
 import { useUpload } from '../../../hooks/useUpload';
 
 export default function UploadPage() {
@@ -99,8 +99,9 @@ export default function UploadPage() {
   };
 
   return (
-    <MainLayout>
-      <Container maxWidth="lg">
+    
+      <ProtectedLayout title="Upload">
+        <Container maxWidth="lg">
         <Box sx={{ mb: 4 }}>
           <Typography variant="h4" component="h1" gutterBottom fontWeight="bold">
             Upload Documents
@@ -230,7 +231,8 @@ export default function UploadPage() {
             <Box component="li">Processing may take a few minutes depending on file size</Box>
           </Box>
         </Alert>
-      </Container>
-    </MainLayout>
+        </Container>
+      </ProtectedLayout>
+    
   );
 }

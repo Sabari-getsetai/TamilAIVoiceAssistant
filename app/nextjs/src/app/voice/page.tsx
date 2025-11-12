@@ -3,10 +3,12 @@
 import React from 'react';
 import { Container, Typography, Box } from '@mui/material';
 import RealTimeVoiceAssistant from '@/components/voice/RealTimeVoiceAssistant';
+import ProtectedLayout from '@/components/layout/ProtectedLayout';
 
 const VoicePage: React.FC = () => {
   return (
-    <Container maxWidth="lg" sx={{ py: 4 }}>
+    <ProtectedLayout title="Voice Assistant" showSidebar={false}>
+      <Container maxWidth="lg" sx={{ py: 4 }}>
       <Box sx={{ mb: 4, textAlign: 'center' }}>
         <Typography variant="h3" component="h1" gutterBottom>
           Voice Assistant
@@ -22,6 +24,7 @@ const VoicePage: React.FC = () => {
       
       <RealTimeVoiceAssistant />
     </Container>
+    </ProtectedLayout>
   );
 };
 

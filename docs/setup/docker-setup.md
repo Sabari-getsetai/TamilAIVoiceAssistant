@@ -472,11 +472,11 @@ docker exec tamil-assistant-ollama ollama list         # List models
 For issues:
 - Check logs: `docker compose -f docker-compose.dev.yml logs -f`
 - Review CLAUDE.md for architecture details
-- See CHANGELOG.md for recent changes
+- See docs/project/changelog.md for recent changes
 - Check GitHub issues for known problems
 
 **Common Documentation Files:**
 - `CLAUDE.md` - Complete project documentation
 - `VOICE_IMPLEMENTATION_SUMMARY.md` - TTS voice setup
-- `CHANGELOG.md` - Version history
+- `docs/project/changelog.md` - Version history
 - `README.md` - Project overview

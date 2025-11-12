@@ -24,7 +24,7 @@ import {
 } from '@mui/icons-material';
 import { useState } from 'react';
 import { useSnackbar } from 'notistack';
-import MainLayout from '../../../components/layout/MainLayout';
+import ProtectedLayout from "../../../components/layout/ProtectedLayout";
 import { useStats } from '../../../hooks/useStats';
 import { AdminApiService } from '../../../services/api/adminApi';
 
@@ -65,7 +65,8 @@ export default function SettingsPage() {
   };
 
   return (
-    <MainLayout>
+    
+      <ProtectedLayout title="Settings">
       <Container maxWidth="lg">
         <Box sx={{ mb: 4 }}>
           <Typography variant="h4" component="h1" gutterBottom fontWeight="bold">
@@ -244,6 +245,7 @@ export default function SettingsPage() {
           </DialogActions>
         </Dialog>
       </Container>
-    </MainLayout>
+      </ProtectedLayout>
+    
   );
 }

@@ -1,4 +1,5 @@
 import axios from 'axios';
+import { TokenStorage } from './authApi';
 import type {
   UploadResponse,
   IngestionStatusResponse,
@@ -9,17 +10,23 @@ import type {
   ApiError,
 } from '../../types';
 
-// Configure axios defaults
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+// Configure axios defaults - use relative URLs for proxy
+const API_BASE_URL = '/api';
 
 const api = axios.create({
   baseURL: API_BASE_URL,
   timeout: 30000, // 30 seconds
 });
 
-// Request interceptor for logging
+// Request interceptor for authentication and logging
 api.interceptors.request.use(
   (config) => {
+    // Add authentication token
+    const token = TokenStorage.getAccessToken();
+    if (token) {
+      config.headers.Authorization = `Bearer ${token}`;
+    }
+    
     console.log(`API Request: ${config.method?.toUpperCase()} ${config.url}`);
     return config;
   },
@@ -29,13 +36,44 @@ api.interceptors.request.use(
   }
 );
 
-// Response interceptor for error handling
+// Response interceptor for error handling and token refresh
 api.interceptors.response.use(
   (response) => {
     console.log(`API Response: ${response.status} ${response.config.url}`);
     return response;
   },
-  (error) => {
+  async (error) => {
+    const originalRequest = error.config;
+
+    // Handle 401 errors with token refresh
+    if (error.response?.status === 401 && !originalRequest._retry) {
+      originalRequest._retry = true;
+
+      try {
+        const refreshToken = TokenStorage.getRefreshToken();
+        if (refreshToken) {
+          // Use the auth API to refresh token
+          const refreshResponse = await axios.post(`${API_BASE_URL}/auth/refresh`, {
+            refresh_token: refreshToken,
+          });
+
+          const { access_token, refresh_token: newRefreshToken } = refreshResponse.data;
+          TokenStorage.setTokens(access_token, newRefreshToken);
+
+          // Retry original request with new token
+          originalRequest.headers.Authorization = `Bearer ${access_token}`;
+          return api(originalRequest);
+        }
+      } catch (refreshError) {
+        // Refresh failed, clear tokens and redirect to login
+        TokenStorage.clearTokens();
+        if (typeof window !== 'undefined') {
+          window.location.href = '/login';
+        }
+        return Promise.reject(refreshError);
+      }
+    }
+
     console.error('API Response Error:', error.response?.data || error.message);
     return Promise.reject(error);
   }

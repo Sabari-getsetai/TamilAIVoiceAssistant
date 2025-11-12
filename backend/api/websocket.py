@@ -16,7 +16,8 @@ from backend.settings import settings
 from backend.speech.vad import VoiceActivityDetector
 from backend.speech.stt import FasterWhisperSTT
 from backend.speech.tts import get_tts_engine, initialize_tts
-from backend.graphs.chat_graph import process_conversation_turn, create_session as create_chat_session
+from backend.graphs.chat_graph import process_conversation_turn_async
+from backend.services.session_service import get_session_manager
 
 logger = logging.getLogger(__name__)
 
@@ -33,8 +34,29 @@ class ConnectionManager:
         """Accept a new WebSocket connection"""
         await websocket.accept()
         self.active_connections[session_id] = websocket
-        # Create chat session
-        chat_session_id = create_chat_session(language="ta", rag_enabled=True)
+        
+        # Get or create database session
+        try:
+            session_manager = await get_session_manager()
+            
+            # Check if session exists in database
+            db_session = await session_manager.get_session(session_id)
+            if not db_session:
+                # Create new database session if it doesn't exist
+                chat_session_id = await session_manager.create_session(
+                    user_id=None,  # Anonymous session
+                    language="ta", 
+                    rag_enabled=True
+                )
+                logger.info(f"Created new database session: {chat_session_id}")
+            else:
+                chat_session_id = session_id
+                logger.info(f"Using existing database session: {chat_session_id}")
+                
+        except Exception as e:
+            logger.error(f"Failed to get/create database session: {e}")
+            # Fallback to session_id as chat_session_id
+            chat_session_id = session_id
         
         # Initialize STT and load model
         stt = FasterWhisperSTT()
@@ -498,12 +520,11 @@ async def process_speech_buffer(session_id: str, session: dict):
                 "timestamp": datetime.now().isoformat()
             })
             
-            # Generate response using chat graph
+            # Generate response using chat graph with database persistence
             logger.info(f"🤖 Generating AI response for: '{transcript}'")
             chat_session_id = session["chat_session_id"]
-            result = await asyncio.to_thread(
-                process_conversation_turn, 
-                chat_session_id, 
+            result = await process_conversation_turn_async(
+                session_id=chat_session_id, 
                 text_input=transcript
             )
             response = result.get("assistant_text", "மன்னிக்கவும், என்னால் பதிலளிக்க முடியவில்லை.")
