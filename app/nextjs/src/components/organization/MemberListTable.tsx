@@ -58,6 +58,10 @@ interface MemberListTableProps {
   onRemoveMember: (member: OrganizationMember) => void;
 }
 
+interface MemberListTableRef {
+  refresh: () => void;
+}
+
 interface ActionMenuProps {
   member: OrganizationMember;
   onUpdateRole: () => void;
@@ -180,11 +184,11 @@ const getInitials = (name?: string, username?: string): string => {
   return displayName.substring(0, 2).toUpperCase();
 };
 
-const MemberListTable: React.FC<MemberListTableProps> = ({
+const MemberListTable = React.forwardRef<MemberListTableRef, MemberListTableProps>(({
   onInviteMember,
   onUpdateMemberRole,
   onRemoveMember
-}) => {
+}, ref) => {
   const [members, setMembers] = useState<OrganizationMember[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -233,8 +237,8 @@ const MemberListTable: React.FC<MemberListTableProps> = ({
     fetchMembers();
   }, [currentOrganization?.id]);
 
-  // Public refresh function for parent components
-  React.useImperativeHandle(React.createRef(), () => ({
+  // Expose refresh function to parent components
+  React.useImperativeHandle(ref, () => ({
     refresh: fetchMembers
   }));
 
@@ -421,6 +425,8 @@ const MemberListTable: React.FC<MemberListTableProps> = ({
       </Box>
     </Paper>
   );
-};
+});
+
+MemberListTable.displayName = 'MemberListTable';
 
 export default MemberListTable;

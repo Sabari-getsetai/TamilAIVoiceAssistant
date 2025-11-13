@@ -31,6 +31,7 @@ export default function AdminDashboard() {
   };
 
   const handleRefresh = () => {
+    console.log(stats);
     refetch();
   };
 
@@ -63,7 +64,7 @@ export default function AdminDashboard() {
             </Card>
           ) : (
             <>
-              {!stats?.exists ? (
+              {!stats ? (
                 <Alert severity="warning" sx={{ mb: 3 }}>
                   No documents have been indexed yet. Upload some documents to get started.
                 </Alert>

@@ -47,7 +47,7 @@ import type { Document } from '../../../types';
 
 export default function DocumentsPage() {
   const router = useRouter();
-  const { data: documents, isLoading, refetch } = useDocuments();
+  const { data: documents, isLoading: isFetching, refetch } = useDocuments();
   const deleteDocument = useDeleteDocument();
   const reindexDocument = useReindexDocument();
 
@@ -69,8 +69,8 @@ export default function DocumentsPage() {
   );
 
   // Filter documents based on search term
-  const documentList = documents?.documents || [];
-  const filteredDocuments = documentList.filter((doc: Document) =>
+  const documentList = documents || [];
+  const filteredDocuments = documentList.filter((doc) =>
     doc.filename.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
@@ -190,7 +190,7 @@ export default function DocumentsPage() {
             variant="outlined"
             startIcon={<RefreshIcon />}
             onClick={handleRefresh}
-            disabled={isLoading}
+            disabled={isFetching}
           >
             Refresh
           </Button>
@@ -215,7 +215,7 @@ export default function DocumentsPage() {
         </Box>
 
         {/* Loading State */}
-        {isLoading && (
+        {isFetching && (
           <Card>
             <CardContent>
               <Typography variant="body1" gutterBottom>
@@ -227,7 +227,7 @@ export default function DocumentsPage() {
         )}
 
         {/* No Documents State */}
-        {!isLoading && (!documents || documentList.length === 0) && (
+        {!isFetching && (documentList.length === 0) && (
           <Alert severity="info" sx={{ mb: 3 }}>
             No documents have been uploaded yet. 
             <Button 
@@ -241,7 +241,7 @@ export default function DocumentsPage() {
         )}
 
         {/* Documents Table */}
-        {!isLoading && documents && documentList.length > 0 && (
+        {!isFetching && documents && documentList.length > 0 && (
           <>
             {/* Summary */}
             <Box sx={{ mb: 3 }}>
@@ -256,21 +256,20 @@ export default function DocumentsPage() {
                   <TableRow>
                     <TableCell>Document</TableCell>
                     <TableCell>Size</TableCell>
-                    <TableCell>Chunks</TableCell>
                     <TableCell>Upload Date</TableCell>
                     <TableCell>Status</TableCell>
                     <TableCell align="right">Actions</TableCell>
                   </TableRow>
                 </TableHead>
                 <TableBody>
-                  {filteredDocuments.map((document: Document) => (
+                  {filteredDocuments.map((document : Document) => (
                     <TableRow key={document.id} hover>
                       <TableCell>
                         <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
                           <DocumentIcon color="primary" />
                           <Box>
                             <Typography variant="body1" fontWeight="medium">
-                              {document.filename}
+                              {document.original_filename}
                             </Typography>
                             <Typography variant="caption" color="text.secondary">
                               ID: {document.id}
@@ -281,11 +280,6 @@ export default function DocumentsPage() {
                       <TableCell>
                         <Typography variant="body2">
                           {formatFileSize(document.file_size)}
-                        </Typography>
-                      </TableCell>
-                      <TableCell>
-                        <Typography variant="body2">
-                          {formatNumber(document.chunk_count)}
                         </Typography>
                       </TableCell>
                       <TableCell>

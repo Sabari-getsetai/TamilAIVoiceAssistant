@@ -3,7 +3,7 @@ import { TokenStorage } from './authApi';
 import type {
   UploadResponse,
   IngestionStatusResponse,
-  DocumentsResponse,
+  Document,
   DocumentDetailResponse,
   IndexStatsResponse,
   ReindexResponse,
@@ -102,12 +102,11 @@ export class AdminApiService {
    * Trigger document ingestion workflow
    */
   static async triggerIngestion(
-    filePaths: string[],
-    vectorStoreName: string = "default"
+    fileIds: string[],
   ): Promise<IngestionStatusResponse> {
-    const response = await api.post<IngestionStatusResponse>('/admin/ingest', {
-      file_paths: filePaths,
-      vector_store_name: vectorStoreName
+    const response = await api.post<IngestionStatusResponse>('/admin/process', {
+      document_ids: fileIds,
+      
     });
     return response.data;
   }
@@ -124,8 +123,8 @@ export class AdminApiService {
   /**
    * Get list of indexed documents
    */
-  static async getDocuments(): Promise<DocumentsResponse> {
-    const response = await api.get<DocumentsResponse>('/admin/documents');
+  static async getDocuments(): Promise<Document[]> {
+    const response = await api.get<Document[]>('/admin/documents');
     return response.data;
   }
 

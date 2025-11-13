@@ -51,6 +51,7 @@ class DocumentService:
         """Get embedding model with lazy initialization"""
         if self.embedding_model is None:
             self.embedding_model = get_embedding_model()
+            self.embedding_model.load()
         return self.embedding_model
 
     @staticmethod

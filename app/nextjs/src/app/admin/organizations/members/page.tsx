@@ -24,6 +24,7 @@ import MemberListTable from '@/components/organization/MemberListTable';
 import InviteMemberDialog from '@/components/organization/InviteMemberDialog';
 import RemoveMemberConfirmDialog from '@/components/organization/RemoveMemberConfirmDialog';
 import UpdateMemberRoleDialog from '@/components/organization/UpdateMemberRoleDialog';
+import PendingInvitationsCard from '@/components/organization/PendingInvitationsCard';
 
 import { useOrganization } from '@/contexts/OrganizationContext';
 import { OrganizationMember } from '@/types/organization';
@@ -52,11 +53,27 @@ const MembersPage: React.FC = () => {
   });
 
   // Reference to the table component for refreshing
-  const tableRef = useRef<{ refresh: () => void } | null>(null);
+  const tableRef = useRef<{ refresh: () => void }>(null);
 
   const { currentOrganization, isLoading, error } = useOrganization();
   const userRole = currentOrganization?.user_role;
   const canManage = canManageMembers(userRole);
+
+  // Debug logging for permission issues
+  React.useEffect(() => {
+    console.debug('[MembersPage] Permission check:', {
+      currentOrganization: currentOrganization ? {
+        id: currentOrganization.id,
+        name: currentOrganization.name,
+        user_role: currentOrganization.user_role,
+        current_user_role: currentOrganization.current_user_role
+      } : null,
+      userRole,
+      canManage,
+      isLoading,
+      error
+    });
+  }, [currentOrganization, userRole, canManage, isLoading, error]);
 
   // Handler for successful operations
   const handleSuccess = (message: string) => {
@@ -67,9 +84,7 @@ const MembersPage: React.FC = () => {
     });
 
     // Refresh the member list
-    if (tableRef.current?.refresh) {
-      tableRef.current.refresh();
-    }
+    tableRef.current?.refresh();
   };
 
   // Handler for errors
@@ -217,6 +232,17 @@ const MembersPage: React.FC = () => {
           <Alert severity="info" sx={{ mb: 3 }}>
             You have read-only access to the member list. Contact an organization admin or owner to manage members.
           </Alert>
+        )}
+
+        {/* Pending Invitations */}
+        {canManage && (
+          <Box sx={{ mb: 4 }}>
+            <PendingInvitationsCard
+              organizationId={currentOrganization.id}
+              userRole={userRole}
+              onRefresh={() => tableRef.current?.refresh()}
+            />
+          </Box>
         )}
 
         {/* Member List Table */}

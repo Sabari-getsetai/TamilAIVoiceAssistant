@@ -17,10 +17,10 @@ export const useUpload = () => {
     mutationFn: AdminApiService.uploadDocuments,
     onSuccess: async (response) => {
       // Extract file paths from upload response
-      const filePaths = response.files.map((file) => file.path);
+      const fileIds = response.documents.map((file) => file.id);
 
       // Trigger ingestion with file paths
-      await AdminApiService.triggerIngestion(filePaths);
+      await AdminApiService.triggerIngestion(fileIds);
 
       // Update files to completed status
       setFiles((prev) =>

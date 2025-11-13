@@ -37,9 +37,6 @@ class DocumentResponse(BaseModel):
     file_size: int
     status: DocumentStatus
     upload_date: datetime
-    processed_date: Optional[datetime] = None
-    error_message: Optional[str] = None
-    total_chunks: Optional[int] = None
 
     class Config:
         from_attributes = True
@@ -113,7 +110,7 @@ async def process_documents_background(
         try:
             # Check if document exists and needs processing
             from sqlalchemy import select
-            result = await db.execute(
+            result = await session.execute(
                 select(Document).where(Document.id == doc_id)
             )
             document = result.scalar_one_or_none()
@@ -265,7 +262,7 @@ async def process_documents(
     background_tasks.add_task(
         process_documents_background,
         request.document_ids,
-        session,
+        db,
         request.force_reprocess
     )
 
@@ -369,7 +366,7 @@ async def delete_document(
         raise HTTPException(status_code=404, detail="Document not found")
 
     service = get_document_service()
-    success = await service.delete_document(document_id, session)
+    success = await service.delete_document(document_id, db)
 
     if not success:
         raise HTTPException(status_code=500, detail="Failed to delete document")
@@ -442,6 +439,8 @@ async def get_all_document_stats(
     )
 
     return DocumentStatsResponse(**stats)
+
+
 
 
 # Legacy compatibility endpoints (optional)

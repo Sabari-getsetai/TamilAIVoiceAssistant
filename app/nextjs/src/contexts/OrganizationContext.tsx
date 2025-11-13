@@ -56,8 +56,29 @@ export function OrganizationProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (user?.active_organization_id && organizations.length > 0) {
       const current = organizations.find(org => org.id === user.active_organization_id);
+
+      // Map current_user_role to user_role for consistent frontend access
+      if (current && current.current_user_role && !current.user_role) {
+        current.user_role = current.current_user_role;
+      }
+
+      console.debug('[OrganizationContext] Setting current organization:', {
+        active_id: user.active_organization_id,
+        found: !!current,
+        current_org: current ? {
+          id: current.id,
+          name: current.name,
+          user_role: current.user_role,
+          current_user_role: current.current_user_role,
+          mapped_role: current.user_role
+        } : null
+      });
       setCurrentOrganization(current || null);
     } else {
+      console.debug('[OrganizationContext] No active organization:', {
+        active_id: user?.active_organization_id,
+        org_count: organizations.length
+      });
       setCurrentOrganization(null);
     }
   }, [user?.active_organization_id, organizations]);
@@ -74,7 +95,24 @@ export function OrganizationProvider({ children }: { children: ReactNode }) {
 
     try {
       const userOrgs = await organizationApi.getUserOrganizations();
-      console.debug('[OrganizationContext] Loaded organizations:', userOrgs.length);
+
+      // Map current_user_role to user_role for all organizations
+      userOrgs.forEach(org => {
+        if (org.current_user_role && !org.user_role) {
+          org.user_role = org.current_user_role;
+        }
+      });
+
+      console.debug('[OrganizationContext] Loaded organizations:', {
+        count: userOrgs.length,
+        orgs: userOrgs.map(org => ({
+          id: org.id,
+          name: org.name,
+          user_role: org.user_role,
+          current_user_role: org.current_user_role,
+          mapped_role: org.user_role
+        }))
+      });
       setOrganizations(userOrgs);
 
       // If user has no active organization but has organizations, set the first one

@@ -27,6 +27,7 @@ import {
 import { usePathname } from 'next/navigation';
 import { useState } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
+import { useOrganization } from '../../contexts/OrganizationContext';
 
 interface AppBarProps {
   onMenuClick: () => void;
@@ -36,6 +37,7 @@ interface AppBarProps {
 export default function AppBar({ onMenuClick, onRefresh }: AppBarProps) {
   const pathname = usePathname();
   const { user, isAuthenticated, logout } = useAuth();
+  const { currentOrganization } = useOrganization();
   const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null);
   const isMenuOpen = Boolean(anchorEl);
 
@@ -85,17 +87,33 @@ export default function AppBar({ onMenuClick, onRefresh }: AppBarProps) {
   };
 
   const getRoleColor = (role: string) => {
-    switch (role) {
+    switch (role?.toLowerCase()) {
       case 'admin':
+      case 'owner':
         return 'error';
       case 'organization_admin':
+      case 'org_admin':
         return 'warning';
       case 'user':
+      case 'member':
         return 'primary';
       default:
         return 'default';
     }
   };
+
+  const getRoleLabel = (role: string) => {
+    if (role === 'ORG_ADMIN') return 'Org Admin';
+    if (role === 'owner') return 'Owner';
+    if (role === 'member') return 'Member';
+    if (role === 'admin') return 'Admin';
+    return role.replace('_', ' ');
+  };
+
+  // Determine which role to display (organization role takes precedence)
+  const displayRole = currentOrganization?.user_role || user?.role || 'user';
+  const roleLabel = getRoleLabel(displayRole);
+  const roleColor = getRoleColor(displayRole);
 
   return (
     <MuiAppBar position="sticky" elevation={1}>
@@ -154,9 +172,9 @@ export default function AppBar({ onMenuClick, onRefresh }: AppBarProps) {
           <>
             <Box sx={{ display: 'flex', alignItems: 'center', ml: 2 }}>
               <Chip
-                label={user.role.replace('_', ' ')}
+                label={roleLabel}
                 size="small"
-                color={getRoleColor(user.role) as 'default' | 'primary' | 'secondary' | 'error' | 'info' | 'success' | 'warning'}
+                color={roleColor as 'default' | 'primary' | 'secondary' | 'error' | 'info' | 'success' | 'warning'}
                 sx={{ mr: 1, textTransform: 'capitalize' }}
               />
               <IconButton

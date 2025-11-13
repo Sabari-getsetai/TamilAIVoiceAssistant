@@ -188,6 +188,38 @@ class OrganizationMember(Base):
         return f"<OrganizationMember(org={self.organization_id}, user={self.user_id}, role={self.role})>"
 
 
+class OrganizationInvitation(Base):
+    """Pending organization invitations."""
+    __tablename__ = "organization_invitations"
+
+    id: Mapped[str] = mapped_column(UUID(as_uuid=False), primary_key=True, default=generate_uuid)
+    organization_id: Mapped[str] = mapped_column(UUID(as_uuid=False), ForeignKey("organizations.id"), nullable=False)
+    invited_email: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
+    role: Mapped[OrganizationRole] = mapped_column(SQLEnum(OrganizationRole), default=OrganizationRole.MEMBER, nullable=False)
+    invited_by: Mapped[str] = mapped_column(UUID(as_uuid=False), ForeignKey("users.id"), nullable=False)
+    token: Mapped[str] = mapped_column(String(255), nullable=False, unique=True, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    accepted_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    accepted_by: Mapped[Optional[str]] = mapped_column(UUID(as_uuid=False), ForeignKey("users.id"))
+    is_expired: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False, index=True)
+
+    # Relationships
+    organization: Mapped["Organization"] = relationship("Organization")
+    inviter: Mapped["User"] = relationship("User", foreign_keys="[OrganizationInvitation.invited_by]")
+    acceptor: Mapped[Optional["User"]] = relationship("User", foreign_keys="[OrganizationInvitation.accepted_by]")
+
+    # Constraints
+    __table_args__ = (
+        UniqueConstraint("organization_id", "invited_email", name="uq_organization_invitation_email"),
+        Index("ix_invitations_email_token", "invited_email", "token"),
+        Index("ix_invitations_org_expires", "organization_id", "expires_at"),
+    )
+
+    def __repr__(self):
+        return f"<OrganizationInvitation(org={self.organization_id}, email={self.invited_email}, role={self.role})>"
+
+
 class Document(Base):
     """Document metadata and storage information."""
     __tablename__ = "documents"

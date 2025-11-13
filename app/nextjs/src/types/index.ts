@@ -2,12 +2,16 @@
 export interface UploadResponse {
   success: boolean;
   message: string;
-  files: Array<{
+  documents: Array<{
+    id: string;
     filename: string;
-    path: string;
-    size: string;
+    original_filename: string;
+    file_type: string;
+    file_size: number;
+    status: "pending" | "processing" | "indexed" | "failed";
+    upload_date: string;
   }>;
-  upload_dir: string;
+  errors: string[];
 }
 
 export interface IngestionStatusResponse {
@@ -24,6 +28,7 @@ export interface IngestionStatusResponse {
 export interface Document {
   id: string;
   filename: string;
+  original_filename: string;
   file_size: number;
   chunk_count: number;
   upload_date: string;
@@ -34,8 +39,7 @@ export interface Document {
 }
 
 export interface DocumentsResponse {
-  documents: Document[];
-  total: number;
+  documents: Array<Document>;
 }
 
 export interface DocumentDetailResponse extends Document {

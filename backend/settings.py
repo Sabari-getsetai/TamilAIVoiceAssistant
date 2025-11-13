@@ -92,13 +92,13 @@ class Settings(BaseSettings):
     USE_LOCAL_LLM: bool = True  # True for local Ollama, False for HuggingFace API
 
     # HuggingFace Inference API settings
-    HF_MODEL_NAME: str = "aisingapore/Llama-SEA-LION-v2-8B-IT:featherless-ai"  # Tamil instruction-tuned model
+    HF_MODEL_NAME: str = os.getenv("HF_MODEL_NAME")  # Tamil instruction-tuned model
     # Alternative models:
     # - "bigscience/bloomz-560m" (Multilingual model with Tamil support)
     # - "sarvamai/sarvam-2b-v0.5" (Indian languages - may not have Inference API)
     # - "google/flan-t5-base" (instruction-tuned)
     # - "microsoft/DialoGPT-small" (smaller, faster)
-    HF_TOKEN: str = ""  # Set via environment variable or .env file
+    HF_TOKEN: str = os.getenv("HF_TOKEN")  # Set via environment variable or .env file
 
     # Audio settings
     AUDIO_SAMPLE_RATE: int = 16000
@@ -142,6 +142,16 @@ class Settings(BaseSettings):
     MINIO_SECURE: bool = False
     MINIO_DOCUMENTS_BUCKET: str = "tamil-assistant-documents"
     MINIO_AUDIO_BUCKET: str = "tamil-assistant-audio"
+
+    # Email/SMTP Configuration
+    SMTP_HOST: str = "localhost"
+    SMTP_PORT: int = 587
+    SMTP_USERNAME: str = ""
+    SMTP_PASSWORD: str = ""
+    SMTP_USE_TLS: bool = True
+    FROM_EMAIL: str = "noreply@tamilvoiceassistant.com"
+    FROM_NAME: str = "Tamil AI Voice Assistant"
+    FRONTEND_URL: str = "http://localhost:3000"
 
     # JWT Authentication Configuration
     JWT_SECRET_KEY: str = "tamil_jwt_secret_dev_change_in_production"
