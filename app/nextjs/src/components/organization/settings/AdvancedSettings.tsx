@@ -51,8 +51,8 @@ interface AdvancedSettingsProps {
 export default function AdvancedSettings({ organization, userRole }: AdvancedSettingsProps) {
   const [memberLimit, setMemberLimit] = React.useState(organization.settings?.memberLimit || 25);
   const [dataRetention, setDataRetention] = React.useState(organization.settings?.dataRetentionDays || 365);
-  const [apiAccess, setApiAccess] = React.useState(organization.settings?.apiAccess || false);
-  const [ssoEnabled, setSsoEnabled] = React.useState(organization.settings?.ssoEnabled || false);
+  const [apiAccess, setApiAccess] = React.useState<boolean>(Boolean(organization.settings?.apiAccess));
+  const [ssoEnabled, setSsoEnabled] = React.useState<boolean>(Boolean(organization.settings?.ssoEnabled));
 
   // Danger zone dialogs
   const [exportDialogOpen, setExportDialogOpen] = React.useState(false);
@@ -180,7 +180,7 @@ export default function AdvancedSettings({ organization, userRole }: AdvancedSet
 
       <Grid container spacing={3}>
         {/* Organization Limits */}
-        <Grid item xs={12} md={6}>
+        <Grid size={{xs: 12, md: 6}}>
           <Card>
             <CardContent>
               <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
@@ -227,7 +227,7 @@ export default function AdvancedSettings({ organization, userRole }: AdvancedSet
         </Grid>
 
         {/* Security Settings */}
-        <Grid item xs={12} md={6}>
+        <Grid size={{xs: 12, md: 6}}>
           <Card>
             <CardContent>
               <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
@@ -279,7 +279,7 @@ export default function AdvancedSettings({ organization, userRole }: AdvancedSet
         </Grid>
 
         {/* Data Management */}
-        <Grid item xs={12}>
+        <Grid size={{xs: 12}}>
           <Card>
             <CardContent>
               <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
@@ -288,7 +288,7 @@ export default function AdvancedSettings({ organization, userRole }: AdvancedSet
               </Box>
 
               <Grid container spacing={2}>
-                <Grid item xs={12} md={4}>
+                <Grid size={{xs: 12, md: 4}}>
                   <Button
                     variant="outlined"
                     startIcon={<BackupIcon />}
@@ -299,7 +299,7 @@ export default function AdvancedSettings({ organization, userRole }: AdvancedSet
                     Export Organization Data
                   </Button>
                 </Grid>
-                <Grid item xs={12} md={4}>
+                <Grid size={{xs: 12, md: 4}}>
                   <Button
                     variant="outlined"
                     startIcon={<DownloadIcon />}
@@ -309,7 +309,7 @@ export default function AdvancedSettings({ organization, userRole }: AdvancedSet
                     Download Audit Log
                   </Button>
                 </Grid>
-                <Grid item xs={12} md={4}>
+                <Grid size={{xs: 12, md: 4}}>
                   <Button
                     variant="outlined"
                     startIcon={<SettingsIcon />}
@@ -325,7 +325,7 @@ export default function AdvancedSettings({ organization, userRole }: AdvancedSet
         </Grid>
 
         {/* Danger Zone */}
-        <Grid item xs={12}>
+        <Grid size={{xs: 12}}>
           <Card sx={{ border: '2px solid', borderColor: 'error.main' }}>
             <CardContent>
               <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>

@@ -68,7 +68,7 @@ async def get_db() -> AsyncGenerator[AsyncSession, None]:
     Dependency to get database session.
 
     Usage in FastAPI:
-        @app.get("/users/")
+        @app.get("/users/")Task exception was never retrieved
         async def get_users(db: AsyncSession = Depends(get_db)):
             # Use db session here
             pass
@@ -80,8 +80,7 @@ async def get_db() -> AsyncGenerator[AsyncSession, None]:
         except Exception:
             await session.rollback()
             raise
-        finally:
-            await session.close()
+        # Removed finally block - async context manager handles session.close() automatically
 
 
 async def wait_for_database(timeout: float = 60.0) -> bool:

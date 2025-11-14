@@ -12,12 +12,13 @@ from datetime import datetime
 import io
 import wave
 
-from backend.settings import settings
+from backend.settings import settings, get_audio_retention_hours
 from backend.speech.vad import VoiceActivityDetector
 from backend.speech.stt import FasterWhisperSTT
 from backend.speech.tts import get_tts_engine, initialize_tts
 from backend.graphs.chat_graph import process_conversation_turn_async
 from backend.services.session_service import get_session_manager
+from backend.storage.file_manager import FileManager
 
 logger = logging.getLogger(__name__)
 
@@ -32,31 +33,37 @@ class ConnectionManager:
         
     async def connect(self, websocket: WebSocket, session_id: str):
         """Accept a new WebSocket connection"""
-        await websocket.accept()
-        self.active_connections[session_id] = websocket
-        
-        # Get or create database session
+
+        # Validate session using comprehensive validation method
         try:
             session_manager = await get_session_manager()
-            
-            # Check if session exists in database
-            db_session = await session_manager.get_session(session_id)
-            if not db_session:
-                # Create new database session if it doesn't exist
-                chat_session_id = await session_manager.create_session(
-                    user_id=None,  # Anonymous session
-                    language="ta", 
-                    rag_enabled=True
-                )
-                logger.info(f"Created new database session: {chat_session_id}")
-            else:
-                chat_session_id = session_id
-                logger.info(f"Using existing database session: {chat_session_id}")
-                
-        except Exception as e:
-            logger.error(f"Failed to get/create database session: {e}")
-            # Fallback to session_id as chat_session_id
+
+            # Use comprehensive session validation
+            validation_result = await session_manager.validate_session_access(session_id)
+
+            if not validation_result["valid"]:
+                error_msg = validation_result.get("error", "Session validation failed")
+                logger.error(f"Session validation failed for {session_id}: {error_msg}")
+
+                if "not found" in error_msg:
+                    await websocket.close(code=4004, reason="Session not found. Please create a session first.")
+                elif "not active" in error_msg:
+                    await websocket.close(code=4005, reason="Session expired or inactive.")
+                else:
+                    await websocket.close(code=4000, reason="Session validation failed")
+                return
+
+            logger.info(f"Session validation successful: {session_id}")
             chat_session_id = session_id
+
+        except Exception as e:
+            logger.error(f"Failed to validate session: {e}")
+            await websocket.close(code=4000, reason="Session validation failed")
+            return
+
+        # Accept connection after validation
+        await websocket.accept()
+        self.active_connections[session_id] = websocket
         
         # Initialize STT and load model
         stt = FasterWhisperSTT()
@@ -132,6 +139,73 @@ class ConnectionManager:
 
 manager = ConnectionManager()
 
+# Initialize FileManager for MinIO uploads
+file_manager = FileManager()
+
+async def upload_audio_to_minio(
+    audio_data: np.ndarray,
+    filename: str,
+    session_id: str,
+    audio_type: str,  # 'input', 'output', 'refined'
+    sample_rate: int = 16000,
+    user_id: str = "anonymous"  # Default for anonymous sessions
+) -> Optional[str]:
+    """
+    Upload audio data to MinIO and return the object key.
+
+    Args:
+        audio_data: Audio data as numpy array
+        filename: Filename for the audio file
+        session_id: Session identifier
+        audio_type: Type of audio ('input', 'output', 'refined')
+        sample_rate: Audio sample rate
+        user_id: User identifier (default 'anonymous')
+
+    Returns:
+        MinIO object key if successful, None if failed
+    """
+    try:
+        # Convert audio data to WAV bytes
+        wav_bytes = numpy_to_wav_bytes(audio_data, sample_rate)
+        duration = len(audio_data) / sample_rate
+
+        # Create BytesIO object for file upload
+        audio_file = io.BytesIO(wav_bytes)
+
+        # Upload to MinIO
+        result = await file_manager.upload_audio(
+            user_id=user_id,
+            filename=filename,
+            file_data=audio_file,
+            audio_type=audio_type,
+            session_id=session_id,
+            duration=duration,
+            sample_rate=sample_rate
+        )
+
+        if result.get("success"):
+            object_key = result.get("object_key")
+            logger.info(f"✅ Audio uploaded to MinIO: {object_key} (size: {len(wav_bytes)} bytes, {duration:.2f}s)")
+
+            # Save local debug copy if enabled
+            if settings.ENABLE_LOCAL_AUDIO_DEBUG:
+                debug_dir = settings.AUDIO_OUT_DIR / f"debug_{audio_type}"
+                debug_dir.mkdir(parents=True, exist_ok=True)
+                debug_file = debug_dir / filename
+
+                with open(debug_file, 'wb') as f:
+                    f.write(wav_bytes)
+                logger.info(f"🐛 DEBUG: Local copy saved to {debug_file}")
+
+            return object_key
+        else:
+            logger.error(f"❌ Failed to upload audio to MinIO: {result.get('errors', 'Unknown error')}")
+            return None
+
+    except Exception as e:
+        logger.error(f"❌ Error uploading audio to MinIO: {e}")
+        return None
+
 def numpy_to_wav_bytes(audio_data: np.ndarray, sample_rate: int = 16000) -> bytes:
     """
     Convert numpy audio array to WAV format bytes
@@ -164,7 +238,7 @@ def numpy_to_wav_bytes(audio_data: np.ndarray, sample_rate: int = 16000) -> byte
 async def websocket_voice_endpoint(websocket: WebSocket, session_id: str):
     """
     WebSocket endpoint for real-time voice conversation
-    
+
     Message Types:
     - audio_chunk: Raw audio data for processing
     - start_speaking: User started speaking
@@ -172,8 +246,18 @@ async def websocket_voice_endpoint(websocket: WebSocket, session_id: str):
     - interrupt: Interrupt assistant speech
     - config: Update session configuration
     """
-    await manager.connect(websocket, session_id)
-    session = manager.session_data[session_id]
+    try:
+        await manager.connect(websocket, session_id)
+
+        # Check if connection was successful (session exists in manager)
+        if session_id not in manager.session_data:
+            logger.error(f"Session {session_id} not found in manager after connection attempt")
+            return
+
+        session = manager.session_data[session_id]
+    except Exception as e:
+        logger.error(f"Failed to establish WebSocket connection for session {session_id}: {e}")
+        return
     
     try:
         # Send initial connection confirmation
@@ -288,22 +372,16 @@ async def handle_audio_chunk(session_id: str, message: dict, session: dict):
         # Convert to numpy array (assuming 16-bit PCM)
         audio_array = np.frombuffer(audio_data, dtype=np.int16).astype(np.float32) / 32768.0
 
-        # DEBUG: Save audio chunks for verification
-        # Create user_audio directory if it doesn't exist
-        user_audio_dir = settings.AUDIO_OUT_DIR / "user_audio"
-        user_audio_dir.mkdir(parents=True, exist_ok=True)
-
-        # Save this chunk (append to current buffer file)
-        if "debug_audio_file" not in session:
-            # Create new debug file for this recording session
+        # Prepare for MinIO upload - collect audio chunks
+        if "audio_chunks_for_upload" not in session:
+            # Initialize for new recording session
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            debug_file = user_audio_dir / f"{session_id}_{timestamp}.wav"
-            session["debug_audio_file"] = str(debug_file)
-            session["debug_audio_chunks"] = []
-            logger.info(f"🎤 DEBUG: Started recording to {debug_file}")
+            session["current_audio_filename"] = f"{session_id}_{timestamp}.wav"
+            session["audio_chunks_for_upload"] = []
+            logger.info(f"🎤 Started collecting audio chunks for MinIO upload")
 
-        # Add this chunk to debug buffer
-        session["debug_audio_chunks"].append(audio_array)
+        # Add this chunk to upload buffer
+        session["audio_chunks_for_upload"].append(audio_array)
 
         # Add to buffer
         session["audio_buffer"].extend(audio_array)
@@ -441,29 +519,36 @@ async def process_speech_buffer(session_id: str, session: dict):
 
         logger.info(f"🎯 Processing speech buffer for session {session_id}: {len(audio_array)} samples ({buffer_duration:.2f}s)")
 
-        # Store debug audio file path before cleanup (for refined audio)
-        original_audio_file = session.get("debug_audio_file")
-
-        # DEBUG: Save complete audio buffer to file for verification
-        if "debug_audio_file" in session and session["debug_audio_chunks"]:
+        # Upload user input audio to MinIO
+        user_audio_minio_key = None
+        if "audio_chunks_for_upload" in session and session["audio_chunks_for_upload"]:
             try:
-                # Concatenate all chunks
-                complete_audio = np.concatenate(session["debug_audio_chunks"])
+                # Concatenate all chunks for upload
+                complete_audio = np.concatenate(session["audio_chunks_for_upload"])
+                filename = session.get("current_audio_filename", f"{session_id}_audio.wav")
 
-                # Save as WAV file
-                debug_file = session["debug_audio_file"]
-                wav_bytes = numpy_to_wav_bytes(complete_audio, sample_rate=16000)
+                # Upload to MinIO
+                user_audio_minio_key = await upload_audio_to_minio(
+                    audio_data=complete_audio,
+                    filename=filename,
+                    session_id=session_id,
+                    audio_type="input",
+                    sample_rate=16000,
+                    user_id="anonymous"  # TODO: Get actual user_id when available
+                )
 
-                with open(debug_file, 'wb') as f:
-                    f.write(wav_bytes)
+                if user_audio_minio_key:
+                    logger.info(f"📁 User audio uploaded to MinIO: {user_audio_minio_key}")
+                else:
+                    logger.warning(f"⚠️  Failed to upload user audio to MinIO")
 
-                logger.info(f"🎤 DEBUG: Saved user audio to {debug_file} ({len(wav_bytes)} bytes, {len(complete_audio)/16000:.2f}s)")
+                # Clean up upload data for next recording
+                session["audio_chunks_for_upload"] = []
+                if "current_audio_filename" in session:
+                    del session["current_audio_filename"]
 
-                # Clean up debug data for next recording
-                session["debug_audio_chunks"] = []
-                del session["debug_audio_file"]
-            except Exception as debug_error:
-                logger.error(f"❌ DEBUG: Failed to save audio file: {debug_error}")
+            except Exception as upload_error:
+                logger.error(f"❌ Error uploading user audio to MinIO: {upload_error}")
 
         # Clear buffer
         session["audio_buffer"] = []
@@ -473,40 +558,58 @@ async def process_speech_buffer(session_id: str, session: dict):
             logger.warning(f"⚠️  Buffer too short ({buffer_duration:.2f}s), skipping STT")
             return
 
-        # Prepare refined audio path if noise reduction is enabled
-        refined_audio_path = None
-        if settings.ENABLE_NOISE_REDUCTION and original_audio_file:
-            from pathlib import Path
+        # Prepare for refined audio MinIO upload if noise reduction is enabled
+        refined_audio_filename = None
+        if settings.ENABLE_NOISE_REDUCTION and user_audio_minio_key:
             try:
-                # Create user_audio_refined directory
-                refined_dir = settings.AUDIO_OUT_DIR / "user_audio_refined"
-                refined_dir.mkdir(parents=True, exist_ok=True)
-                logger.info(f"📁 Created refined audio directory: {refined_dir}")
-
-                # Create matching filename in refined directory
-                original_file = Path(original_audio_file)
-                refined_audio_path = str(refined_dir / original_file.name)
-                logger.info(f"📁 Refined audio will be saved to: {refined_audio_path}")
+                # Generate filename for refined audio based on original
+                original_filename = session.get("current_audio_filename", f"{session_id}_audio.wav")
+                base_name = original_filename.replace(".wav", "")
+                refined_audio_filename = f"{base_name}_refined.wav"
+                logger.info(f"📁 Prepared filename for refined audio: {refined_audio_filename}")
             except Exception as e:
-                logger.error(f"❌ Failed to prepare refined audio path: {e}")
-                refined_audio_path = None
+                logger.error(f"❌ Failed to prepare refined audio filename: {e}")
+                refined_audio_filename = None
 
-        # Speech-to-Text
+        # Speech-to-Text (without local file saving)
         logger.info(f"🎤 Starting STT transcription for session {session_id}...")
         stt = session["stt"]
         result = await asyncio.to_thread(
             stt.transcribe_audio_data,
             audio_array,
-            16000,
-            save_refined_path=refined_audio_path
+            16000
         )
         transcript = result.get("text", "") if isinstance(result, dict) else ""
 
-        # Log both file paths for comparison
-        if refined_audio_path and original_audio_file:
-            logger.info(f"📁 Audio pair saved for comparison:")
-            logger.info(f"   Original:  {original_audio_file}")
-            logger.info(f"   Refined:   {refined_audio_path}")
+        # Upload refined audio to MinIO if available and noise reduction enabled
+        refined_audio_minio_key = None
+        if settings.ENABLE_NOISE_REDUCTION and refined_audio_filename and isinstance(result, dict):
+            refined_audio_data = result.get("refined_audio")
+            if refined_audio_data is not None and len(refined_audio_data) > 0:
+                try:
+                    refined_audio_minio_key = await upload_audio_to_minio(
+                        audio_data=refined_audio_data,
+                        filename=refined_audio_filename,
+                        session_id=session_id,
+                        audio_type="refined",
+                        sample_rate=16000,
+                        user_id="anonymous"  # TODO: Get actual user_id when available
+                    )
+
+                    if refined_audio_minio_key:
+                        logger.info(f"📁 Refined audio uploaded to MinIO: {refined_audio_minio_key}")
+                    else:
+                        logger.warning(f"⚠️  Failed to upload refined audio to MinIO")
+                except Exception as refined_upload_error:
+                    logger.error(f"❌ Error uploading refined audio to MinIO: {refined_upload_error}")
+
+        # Log both MinIO keys for comparison
+        if user_audio_minio_key and refined_audio_minio_key:
+            logger.info(f"📁 Audio pair uploaded to MinIO:")
+            logger.info(f"   Original:  {user_audio_minio_key}")
+            logger.info(f"   Refined:   {refined_audio_minio_key}")
+        elif user_audio_minio_key:
+            logger.info(f"📁 Original audio uploaded to MinIO: {user_audio_minio_key}")
         
         logger.info(f"📝 STT result for session {session_id}: '{transcript}' (length: {len(transcript)})")
         

@@ -289,8 +289,8 @@ class ConversationSession(Base):
     __tablename__ = "conversation_sessions"
 
     id: Mapped[str] = mapped_column(UUID(as_uuid=False), primary_key=True, default=generate_uuid)
-    user_id: Mapped[str] = mapped_column(UUID(as_uuid=False), ForeignKey("users.id"), nullable=False, index=True)
-    organization_id: Mapped[str] = mapped_column(UUID(as_uuid=False), ForeignKey("organizations.id"), nullable=False, index=True)
+    user_id: Mapped[Optional[str]] = mapped_column(UUID(as_uuid=False), ForeignKey("users.id"), nullable=True, index=True)
+    organization_id: Mapped[Optional[str]] = mapped_column(UUID(as_uuid=False), ForeignKey("organizations.id"), nullable=True, index=True)
     language: Mapped[str] = mapped_column(String(10), default="ta", nullable=False)  # Tamil by default
     rag_enabled: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     status: Mapped[SessionStatus] = mapped_column(SQLEnum(SessionStatus), default=SessionStatus.ACTIVE, nullable=False, index=True)

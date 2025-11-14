@@ -27,6 +27,8 @@ import {
 } from '@mui/icons-material';
 import { useTheme } from '@mui/material/styles';
 
+import { chatApi } from '@/services/api/chatApi';
+
 interface Message {
   id: string;
   type: 'user' | 'assistant';
@@ -63,7 +65,8 @@ const RealTimeVoiceAssistant: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [audioLevel, setAudioLevel] = useState(0);
   const [vadConfidence, setVadConfidence] = useState(0);
-  const [sessionId] = useState(() => `session_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`);
+  const [sessionId, setSessionId] = useState<string | null>(null);
+  const [isInitializingSession, setIsInitializingSession] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [isUserInitiatedListening, setIsUserInitiatedListening] = useState(false);
   const [settings, setSettings] = useState<VoiceSettings>({
@@ -88,6 +91,31 @@ const RealTimeVoiceAssistant: React.FC = () => {
 
   // Ref to store startListening function to avoid circular dependency
   const startListeningRef = useRef<(() => Promise<void>) | null>(null);
+
+  // Initialize session with database
+  const initializeSession = useCallback(async (): Promise<string> => {
+    setIsInitializingSession(true);
+    setError(null);
+
+    try {
+      console.log('🔄 Creating new conversation session...');
+      const sessionResponse = await chatApi.createSession({
+        language: 'ta',
+        rag_enabled: true
+      });
+
+      console.log('✅ Session created:', sessionResponse.session_id);
+      setSessionId(sessionResponse.session_id);
+      return sessionResponse.session_id;
+
+    } catch (error) {
+      console.error('❌ Failed to create session:', error);
+      setError('Failed to initialize conversation session. Please try again.');
+      throw error;
+    } finally {
+      setIsInitializingSession(false);
+    }
+  }, []);
 
   // Play audio response
   const playAudioResponse = useCallback(async (audioData: string, text: string) => {
@@ -366,9 +394,17 @@ const RealTimeVoiceAssistant: React.FC = () => {
   }, [addMessage, isListening, settings.continuousListening, startListening, playAudioResponse]);
 
   // Initialize WebSocket connection
-  const connectWebSocket = useCallback(() => {
+  const connectWebSocket = useCallback(async () => {
     try {
-      const wsUrl = `ws://localhost:8000/ws/voice/${sessionId}`;
+      // Ensure we have a valid session before connecting
+      let currentSessionId = sessionId;
+      if (!currentSessionId) {
+        console.log('🔄 No session found, creating new session...');
+        currentSessionId = await initializeSession();
+      }
+
+      const wsUrl = `ws://localhost:8000/ws/voice/${currentSessionId}`;
+      console.log('🔌 Connecting to WebSocket:', wsUrl);
       const ws = new WebSocket(wsUrl);
       
       ws.onopen = () => {
@@ -382,13 +418,30 @@ const RealTimeVoiceAssistant: React.FC = () => {
         handleWebSocketMessage(message);
       };
       
-      ws.onclose = () => {
-        console.log('WebSocket disconnected');
+      ws.onclose = (event) => {
+        console.log('WebSocket disconnected', { code: event.code, reason: event.reason });
         setIsConnected(false);
         setIsListening(false);
         setIsSpeaking(false);
+
+        // Handle specific close codes from backend
+        if (event.code === 4004) {
+          setError('Session not found. Please start a new conversation.');
+          setSessionId(null); // Clear invalid session
+        } else if (event.code === 4005) {
+          setError('Session expired or inactive. Please start a new conversation.');
+          setSessionId(null); // Clear invalid session
+        } else if (event.code === 4000) {
+          setError('Session validation failed. Please try again.');
+          setSessionId(null); // Clear invalid session
+        } else if (event.code === 1000) {
+          // Normal closure
+          console.log('Connection closed normally');
+        } else {
+          setError('Connection lost. Please try again.');
+        }
       };
-      
+
       ws.onerror = (error) => {
         console.error('WebSocket error:', error);
         setError('Connection error. Please try again.');
@@ -400,7 +453,7 @@ const RealTimeVoiceAssistant: React.FC = () => {
       setError('Failed to connect to voice service');
       console.error('WebSocket connection error:', err);
     }
-  }, [sessionId, handleWebSocketMessage]);
+  }, [sessionId, handleWebSocketMessage, initializeSession]);
 
   // Stop listening
   const stopListening = useCallback(() => {
@@ -429,15 +482,21 @@ const RealTimeVoiceAssistant: React.FC = () => {
   };
 
   // Start/end conversation
-  const startConversation = () => {
-    connectWebSocket();
+  const startConversation = async () => {
+    try {
+      await connectWebSocket();
+    } catch (error) {
+      console.error('❌ Failed to start conversation:', error);
+      setError('Failed to start conversation. Please try again.');
+    }
   };
 
-  const endConversation = () => {
+  // Sync cleanup for React cleanup
+  const cleanupResources = () => {
     if (wsRef.current) {
       wsRef.current.close();
     }
-    
+
     // Clean up audio resources
     if (streamRef.current) {
       streamRef.current.getTracks().forEach(track => track.stop());
@@ -448,12 +507,30 @@ const RealTimeVoiceAssistant: React.FC = () => {
     if (currentAudioRef.current) {
       currentAudioRef.current.pause();
     }
-    
+
     setMessages([]);
     setIsListening(false);
     setIsSpeaking(false);
     setAudioLevel(0);
     setVadConfidence(0);
+    setSessionId(null); // Clear session ID
+  };
+
+  const endConversation = async () => {
+    // Clean up session in database
+    if (sessionId) {
+      try {
+        console.log('🧹 Cleaning up session:', sessionId);
+        await chatApi.deleteSession(sessionId);
+        console.log('✅ Session cleaned up successfully');
+      } catch (error) {
+        console.warn('⚠️ Failed to clean up session:', error);
+        // Don't throw error for cleanup failures
+      }
+    }
+
+    // Clean up local resources
+    cleanupResources();
   };
 
   // Update settings
@@ -476,7 +553,7 @@ const RealTimeVoiceAssistant: React.FC = () => {
   // Cleanup on unmount
   useEffect(() => {
     return () => {
-      endConversation();
+      cleanupResources();
     };
   }, []);
 
@@ -611,9 +688,10 @@ const RealTimeVoiceAssistant: React.FC = () => {
                 size="large"
                 startIcon={<Phone />}
                 onClick={startConversation}
+                disabled={isInitializingSession}
                 sx={{ minWidth: 200 }}
               >
-                Start Conversation
+                {isInitializingSession ? 'Initializing...' : 'Start Conversation'}
               </Button>
             ) : (
               <>

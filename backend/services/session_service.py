@@ -82,12 +82,31 @@ class DatabaseSessionManager:
                 raise ValueError(f"Invalid UUID format for user_id: {user_id}") from e
 
         # Use provided db session or create new one
-        db_session = db
-        should_close_db = False
-        if db_session is None:
-            db_session = await anext(get_db())
-            should_close_db = True
+        if db is None:
+            # Use async context manager for proper session handling
+            async for db_session in get_db():
+                try:
+                    return await self._create_session_impl(
+                        session_id, user_id, language, rag_enabled, session_metadata, db_session
+                    )
+                except Exception as e:
+                    await db_session.rollback()
+                    raise
+        else:
+            return await self._create_session_impl(
+                session_id, user_id, language, rag_enabled, session_metadata, db
+            )
 
+    async def _create_session_impl(
+        self,
+        session_id: str,
+        user_id: Optional[str],
+        language: str,
+        rag_enabled: bool,
+        session_metadata: Optional[Dict[str, Any]],
+        db_session: AsyncSession
+    ) -> str:
+        """Internal implementation of session creation with proper error handling."""
         try:
             # Validate user exists if user_id provided
             if user_id:
@@ -106,6 +125,7 @@ class DatabaseSessionManager:
             session = ConversationSession(
                 id=session_id,
                 user_id=user_id,
+                # TODO: Add organization_id support - temporarily allow None for anonymous sessions
                 language=language,
                 rag_enabled=rag_enabled,
                 status=SessionStatus.ACTIVE,
@@ -127,12 +147,9 @@ class DatabaseSessionManager:
             return session_id
 
         except Exception as e:
-            await db_session.rollback()
             logger.error(f"Failed to create session: {e}")
             raise
-        finally:
-            if should_close_db:
-                await db_session.close()
+        # Removed finally block - session cleanup is handled by async context manager
 
     async def get_session(
         self,
@@ -158,47 +175,76 @@ class DatabaseSessionManager:
                 return cached_session
 
         # Use provided db session or create new one
-        db_session = db
-        should_close_db = False
-        if db_session is None:
-            db_session = await anext(get_db())
-            should_close_db = True
+        if db is None:
+            # Use async for to let generator handle cleanup automatically
+            async for db_session in get_db():
+                try:
+                    # Query database
+                    result = await db_session.execute(
+                        select(ConversationSession).where(
+                            ConversationSession.id == session_id
+                        )
+                    )
+                    session = result.scalar_one_or_none()
 
-        try:
-            # Query database
-            result = await db_session.execute(
-                select(ConversationSession).where(
-                    ConversationSession.id == session_id
+                    if not session:
+                        return None
+
+                    # Check if session is expired
+                    if self._is_session_expired(session):
+                        await self._expire_session(session, db_session)
+                        return None
+
+                    # Update last activity
+                    await self._update_session_activity(session, db_session)
+
+                    # Convert to dictionary
+                    session_data = await self._session_to_dict(session, db_session)
+
+                    # Cache the session data
+                    if use_cache:
+                        await self._cache_session_data(session, session_data)
+
+                    return session_data
+
+                except Exception as e:
+                    logger.error(f"Failed to retrieve session {session_id}: {e}")
+                    return None
+                # No finally block needed - async context manager handles cleanup
+        else:
+            # Use provided session
+            try:
+                # Query database
+                result = await db.execute(
+                    select(ConversationSession).where(
+                        ConversationSession.id == session_id
+                    )
                 )
-            )
-            session = result.scalar_one_or_none()
+                session = result.scalar_one_or_none()
 
-            if not session:
+                if not session:
+                    return None
+
+                # Check if session is expired
+                if self._is_session_expired(session):
+                    await self._expire_session(session, db)
+                    return None
+
+                # Update last activity
+                await self._update_session_activity(session, db)
+
+                # Convert to dictionary
+                session_data = await self._session_to_dict(session, db)
+
+                # Cache the session data
+                if use_cache:
+                    await self._cache_session_data(session, session_data)
+
+                return session_data
+
+            except Exception as e:
+                logger.error(f"Failed to retrieve session {session_id}: {e}")
                 return None
-
-            # Check if session is expired
-            if self._is_session_expired(session):
-                await self._expire_session(session, db_session)
-                return None
-
-            # Update last activity
-            await self._update_session_activity(session, db_session)
-
-            # Convert to dictionary
-            session_data = await self._session_to_dict(session, db_session)
-
-            # Cache the session data
-            if use_cache:
-                await self._cache_session_data(session, session_data)
-
-            return session_data
-
-        except Exception as e:
-            logger.error(f"Failed to retrieve session {session_id}: {e}")
-            return None
-        finally:
-            if should_close_db:
-                await db_session.close()
 
     async def update_session_metadata(
         self,
@@ -217,47 +263,76 @@ class DatabaseSessionManager:
         Returns:
             True if successful, False otherwise
         """
-        db_session = db
-        should_close_db = False
-        if db_session is None:
-            db_session = await anext(get_db())
-            should_close_db = True
+        if db is None:
+            # Use async for to let generator handle cleanup automatically
+            async for db_session in get_db():
+                try:
+                    # Get current session
+                    result = await db_session.execute(
+                        select(ConversationSession).where(
+                            ConversationSession.id == session_id
+                        )
+                    )
+                    session = result.scalar_one_or_none()
 
-        try:
-            # Get current session
-            result = await db_session.execute(
-                select(ConversationSession).where(
-                    ConversationSession.id == session_id
+                    if not session or self._is_session_expired(session):
+                        return False
+
+                    # Merge metadata
+                    current_metadata = session.session_metadata or {}
+                    updated_metadata = {**current_metadata, **metadata}
+
+                    # Update session
+                    session.session_metadata = updated_metadata
+                    session.last_activity = utc_now()
+
+                    await db_session.commit()
+
+                    # Update cache
+                    await self.cache.update_session_activity(session_id)
+
+                    logger.debug(f"Updated metadata for session {session_id}")
+                    return True
+
+                except Exception as e:
+                    await db_session.rollback()
+                    logger.error(f"Failed to update session metadata {session_id}: {e}")
+                    return False
+                # No finally block needed - async context manager handles cleanup
+        else:
+            # Use provided session
+            try:
+                # Get current session
+                result = await db.execute(
+                    select(ConversationSession).where(
+                        ConversationSession.id == session_id
+                    )
                 )
-            )
-            session = result.scalar_one_or_none()
+                session = result.scalar_one_or_none()
 
-            if not session or self._is_session_expired(session):
+                if not session or self._is_session_expired(session):
+                    return False
+
+                # Merge metadata
+                current_metadata = session.session_metadata or {}
+                updated_metadata = {**current_metadata, **metadata}
+
+                # Update session
+                session.session_metadata = updated_metadata
+                session.last_activity = utc_now()
+
+                await db.commit()
+
+                # Update cache
+                await self.cache.update_session_activity(session_id)
+
+                logger.debug(f"Updated metadata for session {session_id}")
+                return True
+
+            except Exception as e:
+                await db.rollback()
+                logger.error(f"Failed to update session metadata {session_id}: {e}")
                 return False
-
-            # Merge metadata
-            current_metadata = session.session_metadata or {}
-            updated_metadata = {**current_metadata, **metadata}
-
-            # Update session
-            session.session_metadata = updated_metadata
-            session.last_activity = utc_now()
-
-            await db_session.commit()
-
-            # Update cache
-            await self.cache.update_session_activity(session_id)
-
-            logger.debug(f"Updated metadata for session {session_id}")
-            return True
-
-        except Exception as e:
-            await db_session.rollback()
-            logger.error(f"Failed to update session metadata {session_id}: {e}")
-            return False
-        finally:
-            if should_close_db:
-                await db_session.close()
 
     async def add_conversation_turn(
         self,
@@ -354,9 +429,7 @@ class DatabaseSessionManager:
             await db_session.rollback()
             logger.error(f"Failed to add conversation turn to session {session_id}: {e}")
             return None
-        finally:
-            if should_close_db:
-                await db_session.close()
+        # Note: Session cleanup handled by async context manager, no manual close needed
 
     async def get_conversation_history(
         self,
@@ -423,9 +496,7 @@ class DatabaseSessionManager:
         except Exception as e:
             logger.error(f"Failed to get conversation history for session {session_id}: {e}")
             return []
-        finally:
-            if should_close_db:
-                await db_session.close()
+        # Note: Session cleanup handled by async context manager, no manual close needed
 
     async def delete_session(
         self,
@@ -495,9 +566,7 @@ class DatabaseSessionManager:
             await db_session.rollback()
             logger.error(f"Failed to delete session {session_id}: {e}")
             return False
-        finally:
-            if should_close_db:
-                await db_session.close()
+        # Note: Session cleanup handled by async context manager, no manual close needed
 
     async def list_user_sessions(
         self,
@@ -561,9 +630,7 @@ class DatabaseSessionManager:
         except Exception as e:
             logger.error(f"Failed to list sessions for user {user_id}: {e}")
             return []
-        finally:
-            if should_close_db:
-                await db_session.close()
+        # Note: Session cleanup handled by async context manager, no manual close needed
 
     async def get_session_stats(
         self,
@@ -648,9 +715,7 @@ class DatabaseSessionManager:
         except Exception as e:
             logger.error(f"Failed to get session stats for {session_id}: {e}")
             return None
-        finally:
-            if should_close_db:
-                await db_session.close()
+        # Note: Session cleanup handled by async context manager, no manual close needed
 
     async def cleanup_expired_sessions(
         self,
@@ -719,9 +784,7 @@ class DatabaseSessionManager:
             await db_session.rollback()
             logger.error(f"Failed to cleanup expired sessions: {e}")
             return 0
-        finally:
-            if should_close_db:
-                await db_session.close()
+        # Note: Session cleanup handled by async context manager, no manual close needed
 
     # Private helper methods
 
@@ -808,6 +871,190 @@ class DatabaseSessionManager:
             )
         except Exception as e:
             logger.warning(f"Failed to cache session data {session.id}: {e}")
+
+    # ============================================================================
+    # Helper Methods and Validation
+    # ============================================================================
+
+    def validate_session_id(self, session_id: str) -> bool:
+        """
+        Validate session ID format.
+
+        Args:
+            session_id: Session ID to validate
+
+        Returns:
+            True if valid, False otherwise
+        """
+        if not session_id or not isinstance(session_id, str):
+            return False
+
+        # Check if it's a valid UUID format
+        try:
+            uuid.UUID(session_id)
+            return True
+        except ValueError:
+            return False
+
+    async def session_exists(self, session_id: str, db: Optional[AsyncSession] = None) -> bool:
+        """
+        Check if a session exists in the database.
+
+        Args:
+            session_id: Session ID to check
+            db: Database session
+
+        Returns:
+            True if session exists, False otherwise
+        """
+        if not self.validate_session_id(session_id):
+            return False
+
+        try:
+            session_data = await self.get_session(session_id, db=db)
+            return session_data is not None
+        except Exception as e:
+            logger.error(f"Error checking session existence {session_id}: {e}")
+            return False
+
+    async def is_session_active(self, session_id: str, db: Optional[AsyncSession] = None) -> bool:
+        """
+        Check if a session is active (not expired or completed).
+
+        Args:
+            session_id: Session ID to check
+            db: Database session
+
+        Returns:
+            True if session is active, False otherwise
+        """
+        try:
+            session_data = await self.get_session(session_id, db=db)
+            if not session_data:
+                return False
+
+            return session_data.get('status') == 'active'
+        except Exception as e:
+            logger.error(f"Error checking session active status {session_id}: {e}")
+            return False
+
+    async def get_session_turn_count(self, session_id: str, db: Optional[AsyncSession] = None) -> int:
+        """
+        Get the number of conversation turns for a session.
+
+        Args:
+            session_id: Session ID
+            db: Database session
+
+        Returns:
+            Number of turns in the session
+        """
+        try:
+            session_data = await self.get_session(session_id, db=db)
+            if not session_data:
+                return 0
+
+            return session_data.get('total_turns', 0)
+        except Exception as e:
+            logger.error(f"Error getting session turn count {session_id}: {e}")
+            return 0
+
+    async def update_session_activity(self, session_id: str, db: Optional[AsyncSession] = None) -> bool:
+        """
+        Update session last_activity timestamp.
+
+        Args:
+            session_id: Session ID
+            db: Database session
+
+        Returns:
+            True if successful, False otherwise
+        """
+        try:
+            if not self.validate_session_id(session_id):
+                logger.error(f"Invalid session ID format: {session_id}")
+                return False
+
+            await self._update_session_activity(session_id, db)
+            return True
+        except Exception as e:
+            logger.error(f"Failed to update session activity {session_id}: {e}")
+            return False
+
+    def generate_session_id(self) -> str:
+        """
+        Generate a new session ID.
+
+        Returns:
+            New UUID session ID
+        """
+        return generate_uuid()
+
+    async def validate_session_access(
+        self,
+        session_id: str,
+        user_id: Optional[str] = None,
+        db: Optional[AsyncSession] = None
+    ) -> Dict[str, Any]:
+        """
+        Validate session access and return validation result.
+
+        Args:
+            session_id: Session ID to validate
+            user_id: User ID to check access for (optional)
+            db: Database session
+
+        Returns:
+            Dict with validation result and details
+        """
+        validation_result = {
+            "valid": False,
+            "exists": False,
+            "active": False,
+            "user_match": False,
+            "error": None,
+            "session_data": None
+        }
+
+        try:
+            # Validate session ID format
+            if not self.validate_session_id(session_id):
+                validation_result["error"] = "Invalid session ID format"
+                return validation_result
+
+            # Check if session exists
+            session_data = await self.get_session(session_id, db=db)
+            if not session_data:
+                validation_result["error"] = "Session not found"
+                return validation_result
+
+            validation_result["exists"] = True
+            validation_result["session_data"] = session_data
+
+            # Check if session is active
+            if session_data.get('status') != 'active':
+                validation_result["error"] = f"Session not active (status: {session_data.get('status')})"
+                return validation_result
+
+            validation_result["active"] = True
+
+            # Check user access if user_id provided
+            if user_id:
+                session_user_id = session_data.get('user_id')
+                if session_user_id and session_user_id != user_id:
+                    validation_result["error"] = "User not authorized for this session"
+                    return validation_result
+                validation_result["user_match"] = True
+            else:
+                validation_result["user_match"] = True  # No user restriction
+
+            validation_result["valid"] = True
+            return validation_result
+
+        except Exception as e:
+            validation_result["error"] = f"Validation error: {str(e)}"
+            logger.error(f"Session validation failed for {session_id}: {e}")
+            return validation_result
 
 
 # Global instance

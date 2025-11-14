@@ -371,7 +371,7 @@ async def delete_document(
     if not success:
         raise HTTPException(status_code=500, detail="Failed to delete document")
 
-    return {"message": f"Document {document_id} deleted successfully"}
+    return {"message": f"Document {document.original_filename} deleted successfully"}
 
 
 @router.post("/documents/{document_id}/reprocess")

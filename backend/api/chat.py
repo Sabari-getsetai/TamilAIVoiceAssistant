@@ -17,6 +17,7 @@ from datetime import datetime
 import uuid
 import asyncio
 import time
+from jose import jwt
 
 # Add backend to path
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
@@ -30,11 +31,12 @@ from fastapi import (
     WebSocket,
     WebSocketDisconnect,
     Form,
+    Cookie,
 )
 from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel, Field
 
-from backend.settings import settings
+from backend.settings import Settings, settings
 from backend.graphs.chat_graph import (
     process_conversation_turn_async,
 )
@@ -47,6 +49,7 @@ from backend.rag import get_embedding_model, VectorStore, get_rag_prompt_builder
 
 # Create router
 router = APIRouter(prefix="/chat", tags=["chat"])
+settings = Settings()
 
 
 # ============================================================================
@@ -249,6 +252,8 @@ def cleanup_old_audio_files(max_age_hours: int = 24):
 async def create_chat_session(
     request: SessionCreateRequest,
     background_tasks: BackgroundTasks,
+    auth: str = Cookie(None),
+
 ) -> SessionResponse:
     """
     Create a new chat session
@@ -263,6 +268,9 @@ async def create_chat_session(
         # Get session manager
         session_manager = await get_session_manager()
         
+        #get user id from request or assign None
+        # payload = jwt.decode(auth, settings.JWT_SECRET_KEY, algorithms=[settings.JWT_ALGORITHM]) 
+        # print("Payload:", payload)
         # Create session in database
         session_id = await session_manager.create_session(
             user_id=request.user_id,

@@ -408,6 +408,7 @@ export default function RegisterPage() {
               variant="contained"
               size="large"
               disabled={!isFormValid || isLoading}
+              onClick={(e) => handleSubmit(e)}
               sx={{
                 py: 1.5,
                 mb: 3,

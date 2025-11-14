@@ -22,6 +22,7 @@ from pathlib import Path
 from typing import Dict, List, Optional, Any, TypedDict, Union
 import asyncio
 import logging
+import numpy as np
 
 # Add project root to path
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
@@ -35,6 +36,7 @@ from backend.speech import (
     get_stt_engine, get_tts_engine,
     transcribe_audio, synthesize_speech
 )
+from backend.storage.file_manager import FileManager
 from backend.models import get_llm, initialize_llm
 from backend.rag import (
     get_embedding_model, VectorStore,
@@ -44,6 +46,86 @@ from backend.rag import (
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+# Initialize FileManager for MinIO uploads
+file_manager = FileManager()
+
+async def upload_tts_audio_to_minio(
+    audio_data: Any,  # numpy.ndarray
+    session_id: str,
+    filename: str,
+    user_id: str = "anonymous"
+) -> Optional[str]:
+    """
+    Upload TTS-generated audio to MinIO.
+
+    Args:
+        audio_data: TTS audio data as numpy array
+        session_id: Session identifier
+        filename: Filename for the audio
+        user_id: User identifier (default 'anonymous')
+
+    Returns:
+        MinIO object key if successful, None if failed
+    """
+    try:
+        import io
+        import wave
+
+        # Convert numpy array to WAV bytes (TTS usually outputs at 24kHz for Chirp3 HD)
+        sample_rate = 24000  # Google Cloud TTS Chirp3 HD sample rate
+        duration = len(audio_data) / sample_rate
+
+        # Convert float32 to int16 PCM
+        audio_int16 = (audio_data * 32767).astype(np.int16)
+
+        # Create WAV file in memory
+        wav_buffer = io.BytesIO()
+        with wave.open(wav_buffer, 'wb') as wav_file:
+            wav_file.setnchannels(1)  # Mono
+            wav_file.setsampwidth(2)  # 16-bit
+            wav_file.setframerate(sample_rate)
+            wav_file.writeframes(audio_int16.tobytes())
+
+        wav_bytes = wav_buffer.getvalue()
+        wav_buffer.close()
+
+        # Create BytesIO object for file upload
+        audio_file = io.BytesIO(wav_bytes)
+
+        # Upload to MinIO
+        result = await file_manager.upload_audio(
+            user_id=user_id,
+            filename=filename,
+            file_data=audio_file,
+            audio_type="output",
+            session_id=session_id,
+            duration=duration,
+            sample_rate=sample_rate
+        )
+
+        if result.get("success"):
+            object_key = result.get("object_key")
+            logger.info(f"✅ TTS audio uploaded to MinIO: {object_key} (size: {len(wav_bytes)} bytes, {duration:.2f}s)")
+
+            # Save local debug copy if enabled
+            if settings.ENABLE_LOCAL_AUDIO_DEBUG:
+                debug_dir = settings.AUDIO_OUT_DIR / "debug_output"
+                debug_dir.mkdir(parents=True, exist_ok=True)
+                debug_file = debug_dir / filename
+
+                with open(debug_file, 'wb') as f:
+                    f.write(wav_bytes)
+                logger.info(f"🐛 DEBUG: TTS local copy saved to {debug_file}")
+
+            return object_key
+        else:
+            logger.error(f"❌ Failed to upload TTS audio to MinIO: {result.get('errors', 'Unknown error')}")
+            return None
+
+    except Exception as e:
+        logger.error(f"❌ Error uploading TTS audio to MinIO: {e}")
+        return None
 
 
 class ChatState(TypedDict):
@@ -429,7 +511,7 @@ You are a helpful Tamil AI assistant. Please respond to users in Tamil. Be conve
     return state
 
 
-def synthesize_node(state: ChatState) -> ChatState:
+async def synthesize_node(state: ChatState) -> ChatState:
     """
     Node: Synthesize speech from assistant text using TTS
     
@@ -452,25 +534,37 @@ def synthesize_node(state: ChatState) -> ChatState:
         if not initialize_tts():
             raise RuntimeError("Failed to initialize TTS engine")
         
-        # Generate unique output path
+        # Generate unique output filename
         output_filename = f"response_{state['session_id']}_{int(time.time())}.wav"
-        output_path = settings.AUDIO_OUT_DIR / output_filename
-        
-        # Synthesize speech
+
+        # Synthesize speech (without saving to file)
         audio_data = synthesize_speech(
             state["assistant_text"],
-            output_path=str(output_path)
+            output_path=None  # Don't save locally, we'll upload to MinIO
         )
-        
+
         if audio_data is not None:
-            state["audio_output_path"] = str(output_path)
-            # Could also store audio_data as bytes if needed
-            state["audio_output"] = None  # For now, just use file path
-            state["error_message"] = None
-            
-            logger.info(f"Speech synthesis successful: {output_path}")
+            # Upload TTS audio to MinIO
+            minio_key = await upload_tts_audio_to_minio(
+                audio_data=audio_data,
+                session_id=state['session_id'],
+                filename=output_filename,
+                user_id="anonymous"  # TODO: Get actual user_id when available
+            )
+
+            if minio_key:
+                state["audio_output_path"] = minio_key  # Store MinIO key instead of local path
+                state["audio_output"] = None  # Keep as None for now
+                state["error_message"] = None
+                logger.info(f"📁 TTS audio uploaded to MinIO: {minio_key}")
+            else:
+                state["error_message"] = "Failed to upload TTS audio to storage"
+                state["audio_output_path"] = None
+                logger.error(f"❌ Failed to upload TTS audio for session {state['session_id']}")
         else:
-            raise RuntimeError("TTS synthesis returned None")
+            state["error_message"] = "TTS synthesis failed"
+            state["audio_output_path"] = None
+            logger.error(f"❌ TTS synthesis failed for session {state['session_id']}")
         
     except Exception as e:
         error_msg = f"Speech synthesis failed: {str(e)}"
@@ -628,15 +722,34 @@ async def process_conversation_turn_async(
             should_close_db = True
         
         try:
-            # Get session from database
-            session_data = await session_manager.get_session(session_id, db=db_session)
-            if not session_data:
-                logger.error(f"Session not found: {session_id}")
+            # Use comprehensive session validation
+            validation_result = await session_manager.validate_session_access(session_id, db=db_session)
+
+            if not validation_result["valid"]:
+                error_msg = validation_result.get("error", "Session validation failed")
+                logger.error(f"Session validation failed for {session_id}: {error_msg}")
+
+                # Map validation errors to specific error codes
+                if "not found" in error_msg:
+                    error_code = "SESSION_NOT_FOUND"
+                elif "not active" in error_msg:
+                    error_code = "SESSION_INACTIVE"
+                elif "Invalid session ID" in error_msg:
+                    error_code = "INVALID_SESSION_ID"
+                else:
+                    error_code = "SESSION_VALIDATION_ERROR"
+
                 return {
                     "status": "error",
-                    "error": "Session not found",
-                    "session_id": session_id
+                    "error": error_msg,
+                    "error_code": error_code,
+                    "session_id": session_id,
+                    "validation_details": validation_result
                 }
+
+            # Extract session data from validation result
+            session_data = validation_result["session_data"]
+            logger.debug(f"Session validation successful for: {session_id}")
             
             # Get conversation history
             history = await session_manager.get_conversation_history(session_id, db=db_session)
@@ -644,13 +757,27 @@ async def process_conversation_turn_async(
             # Convert to ChatState format
             state = _convert_db_session_to_chat_state(session_data, history)
             
-            # Validate input
+            # Validate input parameters
             if not audio_input_path and not text_input:
+                logger.error(f"No input provided for session {session_id}")
                 return {
                     "status": "error",
                     "error": "Either audio_input_path or text_input must be provided",
+                    "error_code": "MISSING_INPUT",
                     "session_id": session_id
                 }
+
+            # Validate session_id format
+            if not session_id or not isinstance(session_id, str):
+                logger.error(f"Invalid session_id format: {session_id}")
+                return {
+                    "status": "error",
+                    "error": "Invalid session_id format",
+                    "error_code": "INVALID_SESSION_ID",
+                    "session_id": session_id
+                }
+
+            logger.debug(f"Input validation successful for session: {session_id}")
             
             # Set up current turn
             state["audio_input_path"] = audio_input_path
@@ -721,15 +848,26 @@ async def process_conversation_turn_async(
             
         finally:
             if should_close_db:
-                await db_session.close()
-        
+                # Note: Do not close session manually - async context manager handles it
+                pass
+
     except Exception as e:
         error_msg = f"Conversation processing failed: {str(e)}"
         logger.error(error_msg, exc_info=True)
+
+        # Include more detailed error information for debugging
+        error_details = {
+            "exception_type": type(e).__name__,
+            "exception_message": str(e),
+        }
+
         return {
             "status": "error",
             "error": error_msg,
-            "session_id": session_id
+            "error_code": "PROCESSING_FAILED",
+            "error_details": error_details,
+            "session_id": session_id,
+            "timestamp": datetime.now().isoformat()
         }
 
 

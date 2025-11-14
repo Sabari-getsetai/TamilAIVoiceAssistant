@@ -30,7 +30,7 @@ import {
   Delete as DeleteIcon,
   Refresh as RefreshIcon,
   Send as SendIcon,
-  Copy as CopyIcon,
+  ContentCopy as CopyIcon,
   Email as EmailIcon,
   Schedule as ScheduleIcon
 } from '@mui/icons-material';

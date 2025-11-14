@@ -143,6 +143,22 @@ class Settings(BaseSettings):
     MINIO_DOCUMENTS_BUCKET: str = "tamil-assistant-documents"
     MINIO_AUDIO_BUCKET: str = "tamil-assistant-audio"
 
+    # Audio Storage and Retention Configuration
+    # Tier-based retention periods (in hours)
+    AUDIO_RETENTION_FREE_TIER: int = 24        # 24 hours for free tier
+    AUDIO_RETENTION_PRO_TIER: int = 168        # 7 days for pro tier
+    AUDIO_RETENTION_ENTERPRISE_TIER: int = 720  # 30 days for enterprise tier
+
+    # Audio debug and monitoring settings
+    ENABLE_LOCAL_AUDIO_DEBUG: bool = False     # Save local copies for debugging
+    AUDIO_PRESIGNED_URL_EXPIRY_MINUTES: int = 15  # MinIO presigned URL expiration
+    ENABLE_AUDIO_METRICS: bool = True          # Enable audio upload/access metrics
+    AUDIO_QUALITY_MONITORING: bool = True     # Monitor audio processing quality
+
+    # Audio file size limits (in MB)
+    MAX_AUDIO_FILE_SIZE_MB: int = 10          # Maximum single audio file size
+    MAX_TOTAL_AUDIO_PER_SESSION_MB: int = 100  # Maximum total audio per session
+
     # Email/SMTP Configuration
     SMTP_HOST: str = "localhost"
     SMTP_PORT: int = 587
@@ -172,6 +188,24 @@ class Settings(BaseSettings):
 
 # Global settings instance
 settings = Settings()
+
+
+def get_audio_retention_hours(user_tier: str) -> int:
+    """
+    Get audio retention period in hours based on user tier.
+
+    Args:
+        user_tier: User tier ('FREE', 'PRO', 'ENTERPRISE', or None for anonymous)
+
+    Returns:
+        Number of hours to retain audio files
+    """
+    tier_map = {
+        'FREE': settings.AUDIO_RETENTION_FREE_TIER,
+        'PRO': settings.AUDIO_RETENTION_PRO_TIER,
+        'ENTERPRISE': settings.AUDIO_RETENTION_ENTERPRISE_TIER,
+    }
+    return tier_map.get(user_tier, settings.AUDIO_RETENTION_FREE_TIER)  # Default to FREE tier
 
 
 def ensure_directories():

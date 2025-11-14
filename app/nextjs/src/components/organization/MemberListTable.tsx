@@ -406,7 +406,7 @@ const MemberListTable = React.forwardRef<MemberListTableRef, MemberListTableProp
                       </Typography>
                     </TableCell>
                     <TableCell align="center">
-                      {canAccessMemberActions(userRole, member.role, member.user_id, user?.id) && (
+                      {canAccessMemberActions(userRole, member.role, member.user_id, user?.id || '') && (
                         <ActionMenu
                           member={member}
                           onUpdateRole={() => onUpdateMemberRole(member)}

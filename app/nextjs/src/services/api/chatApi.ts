@@ -40,6 +40,24 @@ export interface TTSResponse {
   audio_url: string;
 }
 
+export interface SessionCreateRequest {
+  user_id?: string;
+  language?: string;
+  rag_enabled?: boolean;
+}
+
+export interface SessionResponse {
+  session_id: string;
+  user_id?: string;
+  language: string;
+  rag_enabled: boolean;
+  created_at: string;
+  last_activity?: string;
+  total_turns: number;
+  session_duration?: number;
+  status: string;
+}
+
 class ChatApiService {
   private async makeRequest<T>(
     endpoint: string,
@@ -116,6 +134,28 @@ class ChatApiService {
   // Health check
   async healthCheck(): Promise<{ status: string }> {
     return this.makeRequest<{ status: string }>('/health');
+  }
+
+  // Session Management
+  async createSession(request: SessionCreateRequest = {}): Promise<SessionResponse> {
+    return this.makeRequest<SessionResponse>('/chat/sessions', {
+      method: 'POST',
+      body: JSON.stringify({
+        user_id: request.user_id,
+        language: request.language || 'ta',
+        rag_enabled: request.rag_enabled !== false, // Default to true
+      }),
+    });
+  }
+
+  async getSession(sessionId: string): Promise<SessionResponse> {
+    return this.makeRequest<SessionResponse>(`/chat/sessions/${sessionId}`);
+  }
+
+  async deleteSession(sessionId: string): Promise<{ success: boolean }> {
+    return this.makeRequest<{ success: boolean }>(`/chat/sessions/${sessionId}`, {
+      method: 'DELETE',
+    });
   }
 }
 

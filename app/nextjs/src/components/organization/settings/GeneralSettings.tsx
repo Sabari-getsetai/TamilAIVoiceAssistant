@@ -172,7 +172,7 @@ export default function GeneralSettings({ organization }: GeneralSettingsProps) 
 
       <Grid container spacing={3}>
         {/* Organization Logo */}
-        <Grid item xs={12}>
+        <Grid size={{xs: 12}}>
           <Paper sx={{ p: 3, mb: 2 }}>
             <Typography variant="h6" gutterBottom>
               Organization Logo
@@ -204,7 +204,7 @@ export default function GeneralSettings({ organization }: GeneralSettingsProps) 
         </Grid>
 
         {/* Basic Information */}
-        <Grid item xs={12} md={6}>
+        <Grid size={{xs: 12, md: 6}}>
           <TextField
             fullWidth
             label="Organization Name"
@@ -216,7 +216,7 @@ export default function GeneralSettings({ organization }: GeneralSettingsProps) 
           />
         </Grid>
 
-        <Grid item xs={12} md={6}>
+        <Grid size={{xs: 12, md: 6}}>
           <TextField
             fullWidth
             label="Website"
@@ -228,7 +228,7 @@ export default function GeneralSettings({ organization }: GeneralSettingsProps) 
           />
         </Grid>
 
-        <Grid item xs={12}>
+        <Grid size={{xs: 12}}>
           <TextField
             fullWidth
             label="Description"
@@ -242,7 +242,7 @@ export default function GeneralSettings({ organization }: GeneralSettingsProps) 
         </Grid>
 
         {/* Organization Details */}
-        <Grid item xs={12} md={6}>
+        <Grid size={{xs: 12, md: 6}}>
           <FormControl fullWidth>
             <InputLabel>Industry</InputLabel>
             <Select
@@ -262,7 +262,7 @@ export default function GeneralSettings({ organization }: GeneralSettingsProps) 
           </FormControl>
         </Grid>
 
-        <Grid item xs={12} md={6}>
+        <Grid size={{xs: 12, md: 6}}>
           <FormControl fullWidth>
             <InputLabel>Organization Size</InputLabel>
             <Select
@@ -280,7 +280,7 @@ export default function GeneralSettings({ organization }: GeneralSettingsProps) 
         </Grid>
 
         {/* Contact & Settings */}
-        <Grid item xs={12} md={6}>
+        <Grid size={{xs: 12, md: 6}}>
           <TextField
             fullWidth
             label="Billing Email"
@@ -292,7 +292,7 @@ export default function GeneralSettings({ organization }: GeneralSettingsProps) 
           />
         </Grid>
 
-        <Grid item xs={12} md={6}>
+        <Grid size={{xs: 12, md: 6}}>
           <FormControl fullWidth>
             <InputLabel>Timezone</InputLabel>
             <Select
@@ -310,7 +310,7 @@ export default function GeneralSettings({ organization }: GeneralSettingsProps) 
         </Grid>
 
         {/* Save Button */}
-        <Grid item xs={12}>
+        <Grid size={{xs: 12}}>
           <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mt: 2 }}>
             <Box>
               {hasChanges && (

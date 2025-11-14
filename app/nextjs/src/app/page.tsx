@@ -22,6 +22,7 @@ import {
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import AuthGuard from '@/components/auth/AuthGuard';
+import { chatApi } from '@/services/api/chatApi';
 
 interface Message {
   id: string;
@@ -54,7 +55,8 @@ export default function VoiceHomePage() {
   const [error, setError] = useState<string | null>(null);
   const [audioLevel, setAudioLevel] = useState(0);
   const [vadConfidence, setVadConfidence] = useState(0);
-  const [sessionId] = useState(() => `session_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`);
+  const [sessionId, setSessionId] = useState<string | null>(null);
+  const [isInitializingSession, setIsInitializingSession] = useState(false);
   const [showDebugInfo, setShowDebugInfo] = useState(false);
   const [audioChunkCount, setAudioChunkCount] = useState(0);
   const [wsStatus, setWsStatus] = useState<'disconnected' | 'connected'>('disconnected');
@@ -85,6 +87,31 @@ export default function VoiceHomePage() {
   };
 
   // Send audio chunk to WebSocket
+  // Initialize session with database
+  const initializeSession = useCallback(async (): Promise<string> => {
+    setIsInitializingSession(true);
+    setError(null);
+
+    try {
+      console.log('🔄 Creating new conversation session...');
+      const sessionResponse = await chatApi.createSession({
+        language: 'ta',
+        rag_enabled: true
+      });
+
+      console.log('✅ Session created:', sessionResponse.session_id);
+      setSessionId(sessionResponse.session_id);
+      return sessionResponse.session_id;
+
+    } catch (error) {
+      console.error('❌ Failed to create session:', error);
+      setError('Failed to initialize conversation session. Please try again.');
+      throw error;
+    } finally {
+      setIsInitializingSession(false);
+    }
+  }, []);
+
   const sendAudioChunk = useCallback((audioData: Int16Array) => {
     if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) {
       console.warn('🔇 Cannot send audio: WebSocket not connected');
@@ -634,21 +661,29 @@ export default function VoiceHomePage() {
   const startConversation = async () => {
     try {
       setError(null);
-      
+
+      // Create database session if not already created
+      let currentSessionId = sessionId;
+      if (!currentSessionId) {
+        console.log('🔄 No session found, creating new session...');
+        currentSessionId = await initializeSession();
+      }
+
       // Set recording flag BEFORE initializing audio to avoid timing issues
       console.log('🔴 Pre-setting recording flag to true before audio initialization');
       isRecordingRef.current = true;
       recordingStartTimeRef.current = Date.now();  // Track when recording started
-      
+
       // Initialize audio first
       const audioSuccess = await initializeAudio();
       if (!audioSuccess) {
         isRecordingRef.current = false;
         return;
       }
-      
-      // Connect WebSocket
-      const wsUrl = `ws://localhost:8000/ws/voice/${sessionId}`;
+
+      // Connect WebSocket with valid session ID
+      const wsUrl = `ws://localhost:8000/ws/voice/${currentSessionId}`;
+      console.log('🔌 Connecting to WebSocket:', wsUrl);
       const ws = new WebSocket(wsUrl);
       
       ws.onopen = () => {
@@ -680,12 +715,29 @@ export default function VoiceHomePage() {
         handleWebSocketMessage(message);
       };
       
-      ws.onclose = () => {
-        console.log('WebSocket disconnected');
+      ws.onclose = (event) => {
+        console.log('WebSocket disconnected', { code: event.code, reason: event.reason });
         setIsConnected(false);
         setIsListening(false);
         setIsSpeaking(false);
         isRecordingRef.current = false;
+
+        // Handle specific close codes from backend
+        if (event.code === 4004) {
+          setError('Session not found. Please start a new conversation.');
+          setSessionId(null); // Clear invalid session
+        } else if (event.code === 4005) {
+          setError('Session expired or inactive. Please start a new conversation.');
+          setSessionId(null); // Clear invalid session
+        } else if (event.code === 4000) {
+          setError('Session validation failed. Please try again.');
+          setSessionId(null); // Clear invalid session
+        } else if (event.code === 1000) {
+          // Normal closure
+          console.log('Connection closed normally');
+        } else {
+          setError('Connection lost. Please try again.');
+        }
       };
       
       ws.onerror = (error) => {
@@ -703,7 +755,19 @@ export default function VoiceHomePage() {
   };
 
   // End conversation
-  const endConversation = () => {
+  const endConversation = async () => {
+    // Clean up session in database
+    if (sessionId) {
+      try {
+        console.log('🧹 Cleaning up session:', sessionId);
+        await chatApi.deleteSession(sessionId);
+        console.log('✅ Session cleaned up successfully');
+      } catch (error) {
+        console.warn('⚠️ Failed to clean up session:', error);
+        // Don't throw error for cleanup failures
+      }
+    }
+
     // Close WebSocket
     if (wsRef.current) {
       wsRef.current.close();
@@ -745,6 +809,7 @@ export default function VoiceHomePage() {
     setIsSpeaking(false);
     setAudioLevel(0);
     setVadConfidence(0);
+    setSessionId(null); // Clear session ID
   };
 
   const clearConversation = () => {
@@ -1031,7 +1096,7 @@ export default function VoiceHomePage() {
             {/* Enhanced Main Microphone Button */}
             <IconButton
               onClick={handleMicClick}
-              disabled={error !== null || isProcessing}
+              disabled={error !== null || isProcessing || isInitializingSession}
               sx={{
                 width: 120,
                 height: 120,
@@ -1106,6 +1171,8 @@ export default function VoiceHomePage() {
           >
             {error
               ? 'Please resolve the error above to continue'
+              : isInitializingSession
+              ? 'Initializing conversation session...'
               : !isConnected
               ? 'Click the microphone to start a seamless conversation'
               : isListening
@@ -1181,7 +1248,7 @@ export default function VoiceHomePage() {
                   
                   <Typography>Session ID:</Typography>
                   <Typography sx={{ fontSize: '0.75rem', wordBreak: 'break-all' }}>
-                    {sessionId.slice(-8)}...
+                    {sessionId ? sessionId.slice(-8) + '...' : 'Not created'}
                   </Typography>
                   
                   <Typography>WebSocket:</Typography>
