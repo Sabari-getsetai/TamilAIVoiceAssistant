@@ -61,7 +61,8 @@ async def test_postgresql():
     print_test_header("PostgreSQL Database")
 
     try:
-        from database.connection import get_db, init_db, check_db_health, close_db
+        from backend.database.connection import get_db, init_db, check_db_health, close_db
+        from sqlalchemy import text
 
         # Test database health
         print_info("Testing database connection...")
@@ -79,25 +80,35 @@ async def test_postgresql():
 
         # Test session creation
         print_info("Testing database session...")
-        async with get_db().__anext__() as db:
-            result = await db.execute("SELECT 1 as test")
-            test_value = result.scalar()
-            if test_value == 1:
-                print_success("Database query successful")
-            else:
-                print_error("Database query failed")
-                return False
+        async for db in get_db():
+            try:
+                result = await db.execute(text("SELECT 1 as test"))
+                test_value = result.scalar()
+                if test_value == 1:
+                    print_success("Database query successful")
+                else:
+                    print_error("Database query failed")
+                    return False
+                break
+            finally:
+                # Session cleanup handled by generator
+                pass
 
         # Test pgVector extension
         print_info("Testing pgVector extension...")
-        async with get_db().__anext__() as db:
-            result = await db.execute("SELECT extname FROM pg_extension WHERE extname = 'vector'")
-            extension = result.scalar()
-            if extension == 'vector':
-                print_success("pgVector extension is installed")
-            else:
-                print_error("pgVector extension not found")
-                return False
+        async for db in get_db():
+            try:
+                result = await db.execute(text("SELECT extname FROM pg_extension WHERE extname = 'vector'"))
+                extension = result.scalar()
+                if extension == 'vector':
+                    print_success("pgVector extension is installed")
+                else:
+                    print_error("pgVector extension not found")
+                    return False
+                break
+            finally:
+                # Session cleanup handled by generator
+                pass
 
         return True
 
@@ -110,9 +121,9 @@ async def test_redis():
     print_test_header("Redis Cache")
 
     try:
-        from cache.redis_client import get_redis_client, init_redis, check_redis_health, set_value, get_value, delete_key
-        from cache.session_cache import SessionCache
-        from cache.rate_limiter import RateLimiter, RateLimitType
+        from backend.cache.redis_client import get_redis_client, init_redis, check_redis_health, set_value, get_value, delete_key
+        from backend.cache.session_cache import SessionCache
+        from backend.cache.rate_limiter import RateLimiter, RateLimitType
 
         # Test Redis health
         print_info("Testing Redis connection...")
@@ -211,8 +222,8 @@ async def test_minio():
     print_test_header("MinIO Object Storage")
 
     try:
-        from storage.minio_client import get_minio_client, init_buckets, upload_file, download_file, delete_file, check_minio_health
-        from storage.file_manager import FileManager
+        from backend.storage.minio_client import get_minio_client, init_buckets, upload_file, download_file, delete_file, check_minio_health
+        from backend.storage.file_manager import FileManager
 
         # Test MinIO health
         print_info("Testing MinIO connection...")

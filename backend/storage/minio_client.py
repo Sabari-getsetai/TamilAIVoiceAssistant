@@ -94,7 +94,7 @@ async def wait_for_minio(timeout: float = 60.0) -> bool:
     Returns:
         bool: True if MinIO is available, False if timeout
     """
-    from infrastructure.retry import wait_for_service
+    from backend.infrastructure.retry import wait_for_service
     
     logger.info("Waiting for MinIO to become available...")
     return await wait_for_service(
@@ -177,7 +177,7 @@ async def init_buckets_with_retry(max_retries: int = 5, initial_delay: float = 1
         max_retries: Maximum number of retry attempts
         initial_delay: Initial delay between retries in seconds
     """
-    from infrastructure.retry import retry_with_backoff, RetryConfig
+    from backend.infrastructure.retry import retry_with_backoff, RetryConfig
     
     config = RetryConfig(
         max_retries=max_retries,
