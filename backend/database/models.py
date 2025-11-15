@@ -30,7 +30,7 @@ from sqlalchemy import (
     UniqueConstraint,
     Index,
 )
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.dialects.postgresql import UUID, ARRAY
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import relationship, Mapped, mapped_column
 from pgvector.sqlalchemy import Vector
@@ -393,3 +393,266 @@ class SystemInfo(Base):
 
     def __repr__(self):
         return f"<SystemInfo(key={self.key}, value={self.value})>"
+
+
+# =============================================================================
+# AUDIT TRAIL MODELS FOR ENTERPRISE COMPLIANCE
+# =============================================================================
+
+class ActionType(str, Enum):
+    """Types of actions that can be audited"""
+    # Authentication
+    LOGIN = "login"
+    LOGOUT = "logout"
+    LOGIN_FAILED = "login_failed"
+    PASSWORD_RESET = "password_reset"
+
+    # User Management
+    USER_CREATED = "user_created"
+    USER_UPDATED = "user_updated"
+    USER_DELETED = "user_deleted"
+    USER_INVITED = "user_invited"
+    USER_ACTIVATED = "user_activated"
+    USER_DEACTIVATED = "user_deactivated"
+
+    # Organization Management
+    ORGANIZATION_CREATED = "organization_created"
+    ORGANIZATION_UPDATED = "organization_updated"
+    ORGANIZATION_DELETED = "organization_deleted"
+    MEMBER_ADDED = "member_added"
+    MEMBER_REMOVED = "member_removed"
+    MEMBER_ROLE_CHANGED = "member_role_changed"
+
+    # Document Management
+    DOCUMENT_UPLOADED = "document_uploaded"
+    DOCUMENT_DOWNLOADED = "document_downloaded"
+    DOCUMENT_VIEWED = "document_viewed"
+    DOCUMENT_DELETED = "document_deleted"
+    DOCUMENT_SHARED = "document_shared"
+
+    # Session Management
+    SESSION_STARTED = "session_started"
+    SESSION_ENDED = "session_ended"
+    CONVERSATION_TURN = "conversation_turn"
+
+    # API Access
+    API_REQUEST = "api_request"
+    API_KEY_CREATED = "api_key_created"
+    API_KEY_DELETED = "api_key_deleted"
+
+    # System Administration
+    SYSTEM_CONFIG_CHANGED = "system_config_changed"
+    BACKUP_CREATED = "backup_created"
+    BACKUP_RESTORED = "backup_restored"
+
+    # Billing & Subscription
+    SUBSCRIPTION_CREATED = "subscription_created"
+    SUBSCRIPTION_CHANGED = "subscription_changed"
+    SUBSCRIPTION_CANCELLED = "subscription_cancelled"
+    PAYMENT_PROCESSED = "payment_processed"
+    PAYMENT_FAILED = "payment_failed"
+
+    # Security Events
+    SUSPICIOUS_LOGIN = "suspicious_login"
+    RATE_LIMIT_EXCEEDED = "rate_limit_exceeded"
+    UNAUTHORIZED_ACCESS = "unauthorized_access"
+    DATA_EXPORT_REQUESTED = "data_export_requested"
+    DATA_DELETION_REQUESTED = "data_deletion_requested"
+
+
+class ResourceType(str, Enum):
+    """Types of resources that can be audited"""
+    USER = "user"
+    ORGANIZATION = "organization"
+    DOCUMENT = "document"
+    SESSION = "session"
+    CONVERSATION_TURN = "conversation_turn"
+    API_KEY = "api_key"
+    SUBSCRIPTION = "subscription"
+    SYSTEM_CONFIG = "system_config"
+    BACKUP = "backup"
+
+
+class ComplianceTag(str, Enum):
+    """Compliance frameworks for categorizing audit events"""
+    GDPR = "GDPR"              # EU General Data Protection Regulation
+    SOC2 = "SOC2"              # Service Organization Control 2
+    HIPAA = "HIPAA"            # Health Insurance Portability and Accountability Act
+    ISO27001 = "ISO27001"      # Information Security Management
+    PCI_DSS = "PCI_DSS"        # Payment Card Industry Data Security Standard
+    CCPA = "CCPA"              # California Consumer Privacy Act
+
+
+class AuditLog(Base):
+    """
+    Comprehensive audit log for enterprise compliance.
+
+    Tracks all user actions for security, compliance, and forensic purposes.
+    Supports GDPR, SOC2, HIPAA, and other regulatory requirements.
+    """
+    __tablename__ = "audit_logs"
+
+    # Primary key
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=generate_uuid)
+
+    # User and organization context
+    user_id: Mapped[Optional[uuid.UUID]] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True, index=True)
+    organization_id: Mapped[Optional[uuid.UUID]] = mapped_column(UUID(as_uuid=True), ForeignKey("organizations.id"), nullable=True, index=True)
+
+    # Action details
+    action_type: Mapped[str] = mapped_column(String(50), nullable=False, index=True)
+    resource_type: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+    resource_id: Mapped[Optional[uuid.UUID]] = mapped_column(UUID(as_uuid=True), nullable=True)
+
+    # Request context
+    ip_address: Mapped[Optional[str]] = mapped_column(String(45), nullable=True)  # IPv6 support
+    user_agent: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    session_id: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    request_id: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)  # For correlating with logs
+
+    # Request details
+    endpoint: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)  # API endpoint called
+    http_method: Mapped[Optional[str]] = mapped_column(String(10), nullable=True)  # GET, POST, etc.
+    request_metadata: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)  # Additional context data
+    response_status: Mapped[Optional[str]] = mapped_column(String(10), nullable=True)  # HTTP status code
+
+    # Audit metadata
+    timestamp: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utc_now, index=True)
+    compliance_tags: Mapped[Optional[list]] = mapped_column(ARRAY(String), nullable=True)  # ["GDPR", "SOC2", etc.]
+
+    # Additional context
+    description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)  # Human-readable description
+    severity: Mapped[str] = mapped_column(String(20), nullable=False, default="info")  # info, warning, critical
+
+    # Data changes (for UPDATE operations)
+    before_data: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)  # State before change
+    after_data: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)   # State after change
+
+    # Relationships
+    user: Mapped[Optional["User"]] = relationship("User", backref="audit_logs")
+    organization: Mapped[Optional["Organization"]] = relationship("Organization", backref="audit_logs")
+
+    # Database indexes for performance
+    __table_args__ = (
+        Index('ix_audit_logs_user_timestamp', 'user_id', 'timestamp'),
+        Index('ix_audit_logs_org_timestamp', 'organization_id', 'timestamp'),
+        Index('ix_audit_logs_action_timestamp', 'action_type', 'timestamp'),
+        Index('ix_audit_logs_resource', 'resource_type', 'resource_id'),
+        Index('ix_audit_logs_ip_timestamp', 'ip_address', 'timestamp'),
+        Index('ix_audit_logs_compliance', 'compliance_tags'),
+        Index('ix_audit_logs_severity_timestamp', 'severity', 'timestamp'),
+    )
+
+    def __repr__(self):
+        return f"<AuditLog(id={self.id}, action={self.action_type}, user={self.user_id})>"
+
+    @property
+    def is_security_event(self) -> bool:
+        """Check if this is a security-related event"""
+        security_actions = {
+            ActionType.LOGIN_FAILED,
+            ActionType.SUSPICIOUS_LOGIN,
+            ActionType.RATE_LIMIT_EXCEEDED,
+            ActionType.UNAUTHORIZED_ACCESS,
+        }
+        return ActionType(self.action_type) in security_actions
+
+    @property
+    def is_data_access(self) -> bool:
+        """Check if this involves data access (for GDPR compliance)"""
+        data_actions = {
+            ActionType.DOCUMENT_VIEWED,
+            ActionType.DOCUMENT_DOWNLOADED,
+            ActionType.DATA_EXPORT_REQUESTED,
+            ActionType.API_REQUEST,
+        }
+        return ActionType(self.action_type) in data_actions
+
+    def to_dict(self) -> dict:
+        """Convert audit log to dictionary for API responses"""
+        return {
+            "id": str(self.id),
+            "user_id": str(self.user_id) if self.user_id else None,
+            "organization_id": str(self.organization_id) if self.organization_id else None,
+            "action_type": self.action_type,
+            "resource_type": self.resource_type,
+            "resource_id": str(self.resource_id) if self.resource_id else None,
+            "ip_address": str(self.ip_address) if self.ip_address else None,
+            "user_agent": self.user_agent,
+            "endpoint": self.endpoint,
+            "http_method": self.http_method,
+            "timestamp": self.timestamp.isoformat() if self.timestamp else None,
+            "description": self.description,
+            "severity": self.severity,
+            "compliance_tags": self.compliance_tags or [],
+            "request_metadata": self.request_metadata or {}
+        }
+
+
+class AuditRetentionPolicy(Base):
+    """
+    Configurable retention policies for audit logs based on compliance requirements.
+    """
+    __tablename__ = "audit_retention_policies"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=generate_uuid)
+
+    # Policy identification
+    name: Mapped[str] = mapped_column(String(100), nullable=False, unique=True)
+    description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+
+    # Retention rules
+    action_types: Mapped[Optional[list]] = mapped_column(ARRAY(String), nullable=True)  # Specific actions this applies to
+    compliance_frameworks: Mapped[Optional[list]] = mapped_column(ARRAY(String), nullable=True)  # GDPR, SOC2, etc.
+    retention_days: Mapped[str] = mapped_column(String(20), nullable=False)  # How long to keep (e.g., "2555" for 7 years)
+
+    # Policy status
+    is_active: Mapped[str] = mapped_column(String(10), nullable=False, default="true")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utc_now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utc_now)
+
+    def __repr__(self):
+        return f"<AuditRetentionPolicy(name={self.name}, retention_days={self.retention_days})>"
+
+
+# Default retention policies
+DEFAULT_RETENTION_POLICIES = [
+    {
+        "name": "GDPR_Compliance",
+        "description": "GDPR requires keeping audit logs for up to 7 years",
+        "compliance_frameworks": ["GDPR"],
+        "retention_days": "2555",  # 7 years
+        "action_types": None  # Applies to all actions
+    },
+    {
+        "name": "SOC2_Security",
+        "description": "SOC2 requires security event logs for 1 year minimum",
+        "compliance_frameworks": ["SOC2"],
+        "retention_days": "365",  # 1 year
+        "action_types": [
+            "login_failed", "suspicious_login", "rate_limit_exceeded",
+            "unauthorized_access", "password_reset"
+        ]
+    },
+    {
+        "name": "Financial_Records",
+        "description": "Financial and billing records kept for 10 years",
+        "retention_days": "3650",  # 10 years
+        "action_types": [
+            "payment_processed", "payment_failed", "subscription_created",
+            "subscription_changed", "subscription_cancelled"
+        ]
+    },
+    {
+        "name": "Data_Access_GDPR",
+        "description": "Data access logs for GDPR data subject requests",
+        "compliance_frameworks": ["GDPR"],
+        "retention_days": "2555",  # 7 years
+        "action_types": [
+            "document_viewed", "document_downloaded", "data_export_requested",
+            "api_request"
+        ]
+    }
+]
+
+

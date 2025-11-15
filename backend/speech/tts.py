@@ -19,8 +19,6 @@ from typing import Optional, Union
 import numpy as np
 from io import BytesIO
 
-# Add project root to path
-sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 from backend.settings import settings
 from backend.speech.audio_utils import save_audio

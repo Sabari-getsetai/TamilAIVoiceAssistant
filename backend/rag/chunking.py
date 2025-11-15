@@ -5,14 +5,10 @@ This module provides text chunking strategies optimized for Tamil and
 multilingual documents. Chunks are created with configurable size and
 overlap for optimal RAG retrieval.
 """
-import sys
 import re
 from pathlib import Path
 from typing import List, Dict, Optional
 from dataclasses import dataclass
-
-# Add backend to path
-sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 from backend.settings import settings
 

@@ -9,23 +9,23 @@ This module provides database-integrated session management with Redis caching:
 - Session lifecycle management
 """
 
-import json
+
 import logging
 import uuid
 from datetime import datetime, timedelta
-from typing import Dict, List, Optional, Any, Union
+from typing import Dict, List, Optional, Any,Union
 
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, and_, desc, func, update
 from sqlalchemy.exc import IntegrityError
 
-from database.connection import get_db
-from database.models import (
+from backend.database.connection import get_db
+from backend.database.models import (
     ConversationSession, ConversationTurn, AudioFile, User,
     SessionStatus, AudioFileType, generate_uuid, utc_now
 )
-from cache.session_cache import SessionCache
-from settings import settings
+from backend.cache.session_cache import SessionCache
+from backend.settings import settings
 
 logger = logging.getLogger(__name__)
 

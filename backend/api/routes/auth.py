@@ -9,365 +9,44 @@ Provides JWT-based authentication with:
 - User profile management
 """
 
-from datetime import datetime, timedelta
-from typing import Optional, Dict, Any, List
+from typing import Dict, Any
 from fastapi import APIRouter, Depends, HTTPException, status
-from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from fastapi.security import HTTPBearer
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, and_
 from sqlalchemy.exc import IntegrityError
-from pydantic import BaseModel, Field, validator
-import bcrypt
-from jose import jwt, JWTError
-from uuid import uuid4
 
-from database.connection import get_db
-from database.models import User, UserRole, Organization, OrganizationMember, OrganizationRole, generate_uuid, utc_now
-from settings import settings
+from backend.database.connection import get_db
+from backend.database.models import User, UserRole, Organization, OrganizationMember, OrganizationRole, generate_uuid, utc_now
+from backend.settings import settings
 
-# Security scheme
-security = HTTPBearer()
+from backend.api.request_response.AuthReqResp import (
+    UserRegisterRequest,
+    UserLoginRequest,
+    TokenResponse,
+    UserResponse,
+    RefreshTokenRequest,
+    OrganizationCreateRequest,
+    OrganizationResponse,
+    SetActiveOrganizationRequest
+)
+
+from backend.api.helper.AuthHelper import (
+    hash_password,
+    verify_password,
+    create_access_token,
+    create_refresh_token,
+    verify_token,
+    get_current_user,
+    get_current_admin_user,
+    get_current_user_optional,
+    get_current_organization
+)
+
 
 # Create router
 router = APIRouter(prefix="/auth", tags=["authentication"])
 
-
-# Pydantic models for request/response
-class UserRegisterRequest(BaseModel):
-    """User registration request schema"""
-    email: str = Field(..., pattern=r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$')
-    username: str = Field(..., min_length=3, max_length=100)
-    password: str = Field(..., min_length=8, max_length=128)
-    full_name: Optional[str] = Field(None, max_length=255)
-
-    @validator("username")
-    def validate_username(cls, v):
-        """Validate username format"""
-        if not v.isalnum() and "_" not in v and "-" not in v:
-            raise ValueError("Username can only contain letters, numbers, underscore, and hyphen")
-        return v.lower()
-
-    @validator("password")
-    def validate_password(cls, v):
-        """Validate password strength"""
-        if len(v) < 8:
-            raise ValueError("Password must be at least 8 characters long")
-        if not any(c.isupper() for c in v):
-            raise ValueError("Password must contain at least one uppercase letter")
-        if not any(c.islower() for c in v):
-            raise ValueError("Password must contain at least one lowercase letter")
-        if not any(c.isdigit() for c in v):
-            raise ValueError("Password must contain at least one digit")
-        return v
-
-
-class UserLoginRequest(BaseModel):
-    """User login request schema"""
-    username_or_email: str
-    password: str
-
-
-class TokenResponse(BaseModel):
-    """JWT token response schema"""
-    access_token: str
-    refresh_token: str
-    token_type: str = "bearer"
-    expires_in: int  # Seconds
-
-
-class UserResponse(BaseModel):
-    """User profile response schema"""
-    id: str
-    email: str
-    username: str
-    full_name: Optional[str]
-    role: UserRole
-    is_active: bool
-    is_verified: bool
-    created_at: datetime
-    last_login: Optional[datetime]
-    preferences: Optional[Dict[str, Any]]
-
-    class Config:
-        from_attributes = True
-
-
-class RefreshTokenRequest(BaseModel):
-    """Token refresh request schema"""
-    refresh_token: str
-
-
-class OrganizationCreateRequest(BaseModel):
-    """Organization creation request schema"""
-    name: str = Field(..., min_length=3, max_length=255)
-    description: Optional[str] = Field(None, max_length=1000)
-    website: Optional[str] = Field(None, max_length=255)
-    industry: Optional[str] = Field(None, max_length=100)
-    size: str = Field("startup", pattern="^(startup|small|medium|large|enterprise)$")
-    timezone: str = Field("UTC", max_length=50)
-
-    @validator("name")
-    def validate_name(cls, v):
-        """Validate organization name format"""
-        if not v.strip():
-            raise ValueError("Organization name cannot be empty")
-        return v.strip()
-
-
-class OrganizationResponse(BaseModel):
-    """Organization response schema"""
-    id: str
-    name: str
-    description: Optional[str]
-    website: Optional[str]
-    industry: Optional[str]
-    size: str
-    timezone: str
-    creator_id: str
-    is_active: bool
-    subscription_plan: str
-    subscription_status: str
-    created_at: datetime
-    current_user_role: Optional[OrganizationRole] = None
-
-    class Config:
-        from_attributes = True
-
-
-class SetActiveOrganizationRequest(BaseModel):
-    """Set active organization request schema"""
-    organization_id: str
-
-
-# Password utilities
-def hash_password(password: str) -> str:
-    """Hash password using bcrypt"""
-    salt = bcrypt.gensalt()
-    return bcrypt.hashpw(password.encode('utf-8'), salt).decode('utf-8')
-
-
-def verify_password(password: str, hashed: str) -> bool:
-    """Verify password against hash"""
-    try:
-        return bcrypt.checkpw(password.encode('utf-8'), hashed.encode('utf-8'))
-    except Exception:
-        return False
-
-
-# JWT utilities
-def create_access_token(user_id: str, expires_delta: Optional[timedelta] = None) -> str:
-    """Create JWT access token"""
-    if expires_delta:
-        expire = datetime.utcnow() + expires_delta
-    else:
-        expire = datetime.utcnow() + timedelta(minutes=settings.JWT_ACCESS_TOKEN_EXPIRE_MINUTES)
-
-    to_encode = {
-        "sub": user_id,
-        "exp": expire,
-        "type": "access",
-        "iat": datetime.utcnow()
-    }
-    return jwt.encode(to_encode, settings.JWT_SECRET_KEY, algorithm=settings.JWT_ALGORITHM)
-
-
-def create_refresh_token(user_id: str, expires_delta: Optional[timedelta] = None) -> str:
-    """Create JWT refresh token"""
-    if expires_delta:
-        expire = datetime.utcnow() + expires_delta
-    else:
-        expire = datetime.utcnow() + timedelta(days=settings.JWT_REFRESH_TOKEN_EXPIRE_DAYS)
-
-    to_encode = {
-        "sub": user_id,
-        "exp": expire,
-        "type": "refresh",
-        "iat": datetime.utcnow(),
-        "jti": str(uuid4())  # Unique token ID for refresh tokens
-    }
-    return jwt.encode(to_encode, settings.JWT_SECRET_KEY, algorithm=settings.JWT_ALGORITHM)
-
-
-def verify_token(token: str, token_type: str = "access") -> Optional[str]:
-    """Verify JWT token and return user ID"""
-    try:
-        payload = jwt.decode(token, settings.JWT_SECRET_KEY, algorithms=[settings.JWT_ALGORITHM])
-        user_id: str = payload.get("sub")
-        token_type_claim: str = payload.get("type")
-
-        if user_id is None or token_type_claim != token_type:
-            return None
-        return user_id
-    except jwt.ExpiredSignatureError:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Token has expired",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
-    except JWTError:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Could not validate credentials",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
-
-
-# Dependency to get current user
-async def get_current_user(
-    credentials: HTTPAuthorizationCredentials = Depends(security),
-    db: AsyncSession = Depends(get_db)
-) -> User:
-    """Get current authenticated user from JWT token"""
-    user_id = verify_token(credentials.credentials, "access")
-
-    if not user_id:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid authentication credentials",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
-
-    # Get user from database
-    result = await db.execute(
-        select(User).where(User.id == user_id)
-    )
-    user = result.scalar_one_or_none()
-
-    if not user:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="User not found",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
-
-    if not user.is_active:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="User account is disabled",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
-
-    return user
-
-
-# Optional security dependency
-optional_security = HTTPBearer(auto_error=False)
-
-# Optional dependency for current user (returns None if not authenticated)
-async def get_current_user_optional(
-    credentials: Optional[HTTPAuthorizationCredentials] = Depends(optional_security),
-    db: AsyncSession = Depends(get_db)
-) -> Optional[User]:
-    """Get current user if authenticated, None otherwise"""
-    if not credentials:
-        return None
-
-    try:
-        return await get_current_user(credentials, db)
-    except HTTPException:
-        return None
-
-
-# Admin user dependency
-async def get_current_admin_user(
-    current_user: User = Depends(get_current_user)
-) -> User:
-    """Ensure current user has admin privileges"""
-    if current_user.role not in [UserRole.ADMIN, UserRole.ORGANIZATION_ADMIN]:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Admin privileges required"
-        )
-    return current_user
-
-
-# Organization authentication dependencies
-async def get_current_organization(
-    current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db)
-) -> Organization:
-    """
-    Get current user's active organization and validate membership.
-
-    CRITICAL: This enforces the "NO APP ACCESS WITHOUT ORG MEMBERSHIP" business rule.
-    This dependency should replace get_current_user on ALL protected endpoints.
-    """
-    # Check if user has an active organization set
-    if not current_user.active_organization_id:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="No active organization. Please create or join an organization to access the app.",
-            headers={"X-Auth-Error": "NO_ORGANIZATION"}
-        )
-
-    # Verify organization exists and user is still a member
-    result = await db.execute(
-        select(Organization, OrganizationMember)
-        .join(OrganizationMember, Organization.id == OrganizationMember.organization_id)
-        .where(
-            and_(
-                Organization.id == current_user.active_organization_id,
-                Organization.is_active == True,
-                OrganizationMember.user_id == current_user.id
-            )
-        )
-    )
-
-    org_membership = result.first()
-
-    if not org_membership:
-        # User's active organization is invalid (deleted or user removed)
-        # Clear the invalid active_organization_id
-        current_user.active_organization_id = None
-        await db.commit()
-
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Your organization access has been revoked. Please create or join a new organization.",
-            headers={"X-Auth-Error": "ORGANIZATION_ACCESS_REVOKED"}
-        )
-
-    organization, membership = org_membership
-
-    # Attach membership info to organization for role-based access
-    organization._current_user_membership = membership
-
-    return organization
-
-
-async def get_current_organization_admin(
-    organization: Organization = Depends(get_current_organization)
-) -> Organization:
-    """Ensure current user has admin privileges in their organization"""
-    membership = getattr(organization, '_current_user_membership', None)
-
-    if not membership or membership.role not in [OrganizationRole.ADMIN, OrganizationRole.OWNER]:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Organization admin privileges required"
-        )
-
-    return organization
-
-
-async def get_user_organizations(
-    current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db)
-) -> List[Organization]:
-    """Get all organizations user is a member of"""
-    result = await db.execute(
-        select(Organization)
-        .join(OrganizationMember, Organization.id == OrganizationMember.organization_id)
-        .where(
-            and_(
-                OrganizationMember.user_id == current_user.id,
-                Organization.is_active == True
-            )
-        )
-        .order_by(Organization.name)
-    )
-
-    return list(result.scalars().all())
 
 
 # Authentication endpoints

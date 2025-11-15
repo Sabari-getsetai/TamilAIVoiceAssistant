@@ -4,21 +4,20 @@ Tamil AI Voice Assistant - FastAPI Application
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from datetime import datetime
-import sys
 from pathlib import Path
 import asyncio
 
-# Add backend to Python path
-sys.path.insert(0, str(Path(__file__).parent))
-
-from settings import settings
-from api import auth_router, admin_v2_router, chat_router, speech_router, simple_chat_router, websocket_router, organization_router
+from backend.settings import settings
+from backend.api import auth_router, admin_v2_router, audit_router, chat_router, speech_router, audio_router, simple_chat_router, websocket_router, organization_router
+from backend.api.microservices import router as microservices_router
+from backend.middleware.audit_middleware import AuditMiddleware
 
 # Infrastructure imports
-from database.connection import init_db_with_retry, check_db_health, get_db_info
-from storage.minio_client import init_buckets_with_retry, check_minio_health, get_minio_info
-from cache.redis_client import init_redis_with_retry, check_redis_health, get_redis_info
-from infrastructure.health import get_health_checker, monitor_services
+from backend.database.connection import init_db_with_retry, check_db_health, get_db_info
+from backend.storage.minio_client import init_buckets_with_retry, check_minio_health, get_minio_info
+from backend.cache.redis_client import init_redis_with_retry, check_redis_health, get_redis_info
+from backend.infrastructure.health import get_health_checker, monitor_services
+from backend.infrastructure import service_registry, create_health_monitor
 
 # Create FastAPI application
 app = FastAPI(
@@ -36,14 +35,25 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Add audit middleware for enterprise compliance
+app.add_middleware(
+    AuditMiddleware,
+    exclude_paths=["/health", "/docs", "/openapi.json", "/favicon.ico"],
+    log_request_body=False,  # Set to True for detailed request logging
+    log_response_body=False  # Set to True for detailed response logging
+)
+
 # Include routers
 app.include_router(auth_router)
 app.include_router(admin_v2_router)  # Database-integrated admin endpoints
+app.include_router(audit_router)  # Audit trail endpoints
 app.include_router(chat_router)
 app.include_router(speech_router)
+app.include_router(audio_router)  # Audio file access endpoints
 app.include_router(simple_chat_router)
 app.include_router(websocket_router)
 app.include_router(organization_router)
+app.include_router(microservices_router)  # Microservice management endpoints
 
 
 @app.get("/")
@@ -194,12 +204,25 @@ async def startup_event():
     # Print summary
     initialized_count = sum(services_status.values())
     total_count = len(services_status)
+    # Initialize microservice infrastructure
+    try:
+        print("\n🏗️ Initializing microservice infrastructure...")
+
+        # Start microservice health monitoring
+        microservice_health_monitor = create_health_monitor(service_registry)
+        await microservice_health_monitor.start_monitoring()
+        print("✅ Microservice health monitoring started")
+
+    except Exception as e:
+        print(f"⚠️  Microservice infrastructure setup failed: {e}")
+
     print(f"\n📊 Services initialized: {initialized_count}/{total_count}")
     for service, status in services_status.items():
         status_icon = "✅" if status else "❌"
         print(f"  {status_icon} {service}: {'ready' if status else 'unavailable'}")
 
-    print("\n✅ Tamil AI Voice Assistant started successfully!")
+    print("\n📡 Microservice endpoints available at /microservices/*")
+    print("✅ Tamil AI Voice Assistant started successfully!")
 
 
 @app.on_event("shutdown")

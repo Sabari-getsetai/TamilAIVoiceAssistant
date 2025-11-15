@@ -8,198 +8,35 @@ This module provides REST API endpoints for:
 """
 
 from datetime import datetime
-from typing import List, Optional
+from typing import List
 from uuid import uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
-from sqlalchemy import select, and_, or_, func
+from sqlalchemy import select, and_, func
 
 from backend.database.connection import get_db
 from backend.database.models import Organization, OrganizationMember, User, OrganizationRole
-from backend.api.auth import get_current_user
+from backend.api.routes.auth import get_current_user
 from backend.services.organization_service import OrganizationService
-from pydantic import BaseModel, Field
+from backend.api.request_response.OrganizationReqResp import (
+    CreateOrganizationRequest,
+    UpdateOrganizationRequest,
+    OrganizationResponse,
+    OrganizationMemberResponse,
+    InviteMemberRequest,
+    UpdateMemberRoleRequest)
 
-
-# Pydantic models for request/response
-class OrganizationBase(BaseModel):
-    name: str = Field(..., min_length=1, max_length=255, description="Organization name")
-    description: Optional[str] = Field(None, max_length=1000, description="Organization description")
-    website: Optional[str] = Field(None, max_length=255, description="Organization website URL")
-    industry: Optional[str] = Field(None, max_length=100, description="Industry type")
-    size: str = Field("startup", description="Organization size")
-    timezone: str = Field("UTC", description="Organization timezone")
-    billing_email: Optional[str] = Field(None, max_length=255, description="Billing email address")
-
-
-class CreateOrganizationRequest(OrganizationBase):
-    """Request model for creating a new organization."""
-    pass
-
-
-class UpdateOrganizationRequest(BaseModel):
-    """Request model for updating an organization."""
-    name: Optional[str] = Field(None, min_length=1, max_length=255)
-    description: Optional[str] = Field(None, max_length=1000)
-    website: Optional[str] = Field(None, max_length=255)
-    industry: Optional[str] = Field(None, max_length=100)
-    size: Optional[str] = None
-    timezone: Optional[str] = None
-    billing_email: Optional[str] = Field(None, max_length=255)
-    settings: Optional[dict] = None
-
-
-class OrganizationResponse(BaseModel):
-    """Response model for organization data."""
-    id: str
-    name: str
-    description: Optional[str]
-    website: Optional[str]
-    industry: Optional[str]
-    size: str
-    timezone: str
-    is_active: bool
-    settings: Optional[dict]
-    billing_email: Optional[str]
-    subscription_plan: str
-    subscription_status: str
-    trial_ends_at: Optional[datetime]
-    created_at: datetime
-    updated_at: datetime
-    member_count: Optional[int] = None
-    user_role: Optional[str] = None
-
-    class Config:
-        from_attributes = True
-        use_enum_values = True  # Serialize enums as their values
-
-
-class OrganizationMemberResponse(BaseModel):
-    """Response model for organization member data."""
-    id: str
-    user_id: str
-    username: str
-    full_name: Optional[str]
-    email: str
-    role: str
-    joined_at: datetime
-
-    class Config:
-        from_attributes = True
-
-
-class SwitchOrganizationRequest(BaseModel):
-    """Request model for switching active organization."""
-    organization_id: str
-
-
-class InviteMemberRequest(BaseModel):
-    """Request model for inviting a new member."""
-    email: str = Field(..., max_length=255, description="Email address of user to invite")
-    role: OrganizationRole = Field(OrganizationRole.MEMBER, description="Role to assign to the new member")
-
-
-class UpdateMemberRoleRequest(BaseModel):
-    """Request model for updating a member's role."""
-    role: OrganizationRole = Field(..., description="New role to assign to the member")
-
-
-class RemoveMemberRequest(BaseModel):
-    """Request model for removing a member from organization."""
-    user_id: str = Field(..., description="ID of user to remove from organization")
+from backend.api.helper.OrganizationHelper import (
+    check_organization_permission,
+    get_user_organization_role,
+    has_org_admin_permission
+)
 
 
 # Router setup
 router = APIRouter(prefix="/organizations", tags=["organizations"])
-
-
-async def get_user_organization_role(
-    db: AsyncSession, 
-    user_id: str, 
-    organization_id: str
-) -> Optional[OrganizationRole]:
-    """Get user's role in a specific organization."""
-    result = await db.execute(
-        select(OrganizationMember.role)
-        .where(
-            and_(
-                OrganizationMember.user_id == user_id,
-                OrganizationMember.organization_id == organization_id
-            )
-        )
-    )
-    role = result.scalar_one_or_none()
-    return role
-
-
-async def check_organization_permission(
-    db: AsyncSession,
-    user: User,
-    organization_id: str,
-    required_roles: List[OrganizationRole] = None
-) -> bool:
-    """Check if user has permission to access organization."""
-    # System admins have access to all organizations
-    if user.role.value == "admin":
-        return True
-
-    # Check organization membership
-    user_role = await get_user_organization_role(db, user.id, organization_id)
-    if not user_role:
-        return False
-
-    # Check specific role requirements
-    if required_roles and user_role not in required_roles:
-        return False
-
-    return True
-
-
-def has_org_admin_permission(user_role: OrganizationRole, action: str) -> bool:
-    """
-    Check if ORG_ADMIN role has permission for specific actions.
-
-    ORG_ADMIN permissions:
-    - View organization details and members
-    - Remove members (except owners)
-    - Change member roles (except to/from owner)
-    - Update organization settings
-    - Manage billing information
-
-    ORG_ADMIN restrictions:
-    - Cannot delete organization
-    - Cannot promote/demote owners
-    - Cannot change their own role
-    """
-    if user_role not in [OrganizationRole.ORG_ADMIN, OrganizationRole.ADMIN, OrganizationRole.OWNER]:
-        return False
-
-    # Owner has all permissions
-    if user_role == OrganizationRole.OWNER:
-        return True
-
-    # ADMIN has all permissions (legacy compatibility)
-    if user_role == OrganizationRole.ADMIN:
-        return True
-
-    # ORG_ADMIN specific permissions
-    if user_role == OrganizationRole.ORG_ADMIN:
-        allowed_actions = [
-            "view_organization", "view_members", "remove_member",
-            "update_member_role", "update_organization", "manage_billing"
-        ]
-        restricted_actions = [
-            "delete_organization", "promote_to_owner", "demote_owner"
-        ]
-
-        if action in allowed_actions:
-            return True
-        if action in restricted_actions:
-            return False
-
-    return False
 
 
 @router.post("/", response_model=OrganizationResponse, status_code=status.HTTP_201_CREATED)

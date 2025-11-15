@@ -10,8 +10,6 @@ from typing import List, Dict, Optional
 from dataclasses import dataclass
 from datetime import datetime
 
-# Add backend to path
-sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 from backend.settings import settings
 

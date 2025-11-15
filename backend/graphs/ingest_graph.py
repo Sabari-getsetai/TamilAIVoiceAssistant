@@ -16,8 +16,6 @@ from typing import List, Dict, TypedDict, Optional, Annotated
 from datetime import datetime
 import uuid
 
-# Add backend to path
-sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 from backend.settings import settings
 from backend.rag import (

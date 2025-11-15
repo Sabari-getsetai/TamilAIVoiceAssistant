@@ -12,8 +12,6 @@ from typing import Optional, List, Tuple, Union
 import numpy as np
 import time
 
-# Add project root to path
-sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 from backend.settings import settings
 from backend.speech.audio_utils import load_audio

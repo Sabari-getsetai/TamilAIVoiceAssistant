@@ -11,8 +11,6 @@ from pathlib import Path
 from typing import Optional, Union, List, Dict, Any
 import numpy as np
 
-# Add project root to path
-sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 from backend.settings import settings
 from backend.speech.audio_utils import load_audio, trim_silence

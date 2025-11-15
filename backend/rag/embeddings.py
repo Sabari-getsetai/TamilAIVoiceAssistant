@@ -10,8 +10,6 @@ from pathlib import Path
 from typing import List, Union, Optional
 import numpy as np
 
-# Add backend to path
-sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 from backend.settings import settings
 

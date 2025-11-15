@@ -24,8 +24,6 @@ import asyncio
 import logging
 import numpy as np
 
-# Add project root to path
-sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 from langgraph.graph import StateGraph, END
 from langchain_core.messages import HumanMessage, AIMessage
@@ -37,6 +35,7 @@ from backend.speech import (
     transcribe_audio, synthesize_speech
 )
 from backend.storage.file_manager import FileManager
+from backend.services.tier_service import get_tier_for_session, get_retention_for_session
 from backend.models import get_llm, initialize_llm
 from backend.rag import (
     get_embedding_model, VectorStore,
@@ -90,8 +89,20 @@ async def upload_tts_audio_to_minio(
         wav_bytes = wav_buffer.getvalue()
         wav_buffer.close()
 
+        # Detect user tier for retention policy
+        user_tier = await get_tier_for_session(session_id)
+        retention_hours = await get_retention_for_session(session_id)
+
         # Create BytesIO object for file upload
         audio_file = io.BytesIO(wav_bytes)
+
+        # Add tier-based metadata
+        tier_metadata = {
+            "user_tier": user_tier,
+            "retention_hours": str(retention_hours),
+            "retention_policy": f"{retention_hours}h_from_upload",
+            "audio_source": "tts_output"
+        }
 
         # Upload to MinIO
         result = await file_manager.upload_audio(
@@ -101,7 +112,8 @@ async def upload_tts_audio_to_minio(
             audio_type="output",
             session_id=session_id,
             duration=duration,
-            sample_rate=sample_rate
+            sample_rate=sample_rate,
+            metadata=tier_metadata
         )
 
         if result.get("success"):
