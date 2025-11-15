@@ -2,12 +2,14 @@
 
 import { ThemeProvider } from '@mui/material/styles';
 import CssBaseline from '@mui/material/CssBaseline';
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { QueryClientProvider } from '@tanstack/react-query';
 import { ReactQueryDevtools } from '@tanstack/react-query-devtools';
 import { SnackbarProvider } from 'notistack';
 import { theme } from '../theme/theme';
 import { AuthProvider } from '../contexts/AuthContext';
 import { OrganizationProvider } from '../contexts/OrganizationContext';
+import { ErrorBoundary } from '../components/common/ErrorBoundary';
+import { createQueryClient } from '../services/core/queryClient';
 import { useState } from 'react';
 
 export default function RootLayout({
@@ -15,14 +17,7 @@ export default function RootLayout({
 }: Readonly<{
   children: React.ReactNode;
 }>) {
-  const [queryClient] = useState(() => new QueryClient({
-    defaultOptions: {
-      queries: {
-        staleTime: 60 * 1000, // 1 minute
-        retry: 1,
-      },
-    },
-  }));
+  const [queryClient] = useState(() => createQueryClient());
 
   return (
     <html lang="en">
@@ -35,7 +30,7 @@ export default function RootLayout({
         <QueryClientProvider client={queryClient}>
           <ThemeProvider theme={theme}>
             <CssBaseline />
-            <SnackbarProvider 
+            <SnackbarProvider
               maxSnack={3}
               anchorOrigin={{
                 vertical: 'top',
@@ -43,11 +38,13 @@ export default function RootLayout({
               }}
               autoHideDuration={4000}
             >
-              <AuthProvider>
-                <OrganizationProvider>
-                  {children}
-                </OrganizationProvider>
-              </AuthProvider>
+              <ErrorBoundary context={{ location: 'root_layout' }}>
+                <AuthProvider>
+                  <OrganizationProvider>
+                    {children}
+                  </OrganizationProvider>
+                </AuthProvider>
+              </ErrorBoundary>
             </SnackbarProvider>
           </ThemeProvider>
           <ReactQueryDevtools initialIsOpen={false} />
