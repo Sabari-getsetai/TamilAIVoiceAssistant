@@ -22,8 +22,6 @@ from backend.graphs.chat_graph import (
     create_session, delete_session, get_session_info,
     get_conversation_history, get_session_stats,
     process_conversation_turn,
-    # Graph components
-    chat_graph, session_manager,
     transcribe_node, retrieve_node, generate_node,
     synthesize_node, history_node,
     # State management
