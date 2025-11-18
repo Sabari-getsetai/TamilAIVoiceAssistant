@@ -870,7 +870,7 @@ export default function VoiceHomePage() {
         <Button
           variant="outlined"
           startIcon={<SettingsIcon />}
-          onClick={() => router.push('/admin')}
+          onClick={() => router.push('/org/settings')}
           sx={{
             color: 'white',
             borderColor: 'rgba(255,255,255,0.5)',
@@ -880,7 +880,7 @@ export default function VoiceHomePage() {
             },
           }}
         >
-          Admin
+          Settings
         </Button>
       </Box>
 

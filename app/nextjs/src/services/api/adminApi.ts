@@ -10,8 +10,8 @@ import type {
   ApiError,
 } from '../../types';
 
-// Configure axios defaults - use relative URLs for proxy
-const API_BASE_URL = '/api';
+// Configure axios defaults - use absolute URL to backend
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
 const api = axios.create({
   baseURL: API_BASE_URL,

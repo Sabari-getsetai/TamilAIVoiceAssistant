@@ -146,7 +146,7 @@ export default function AdvancedSettings({ organization, userRole }: AdvancedSet
       });
       // TODO: Redirect to organization selection page
       setTimeout(() => {
-        window.location.href = '/admin/organizations/setup';
+        window.location.href = '/setup/organization';
       }, 2000);
     } catch (error: any) {
       console.error('Error deleting organization:', error);

@@ -169,6 +169,7 @@ class AuditMiddleware(BaseHTTPMiddleware):
             authorization = request.headers.get("authorization")
             if authorization and authorization.startswith("Bearer "):
                 # This would integrate with your JWT service
+                
                 # For now, we'll check if user info is available in request state
                 if hasattr(request.state, 'user'):
                     user = request.state.user

@@ -11,13 +11,20 @@ Provides JWT-based authentication with:
 
 from typing import Dict, Any
 from fastapi import APIRouter, Depends, HTTPException, status
-from fastapi.security import HTTPBearer
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, and_
 from sqlalchemy.exc import IntegrityError
 
 from backend.database.connection import get_db
 from backend.database.models import User, UserRole, Organization, OrganizationMember, OrganizationRole, generate_uuid, utc_now
+from backend.services.auth import (
+    AuthenticationService, 
+    get_current_user_dep, 
+    get_current_admin_user_dep, 
+    get_current_organization_dep,
+    get_current_user_optional_dep
+    )
+
 from backend.settings import settings
 
 from backend.api.request_response.AuthReqResp import (
@@ -31,17 +38,8 @@ from backend.api.request_response.AuthReqResp import (
     SetActiveOrganizationRequest
 )
 
-from backend.api.helper.AuthHelper import (
-    hash_password,
-    verify_password,
-    create_access_token,
-    create_refresh_token,
-    verify_token,
-    get_current_user,
-    get_current_admin_user,
-    get_current_user_optional,
-    get_current_organization
-)
+authentication_service = AuthenticationService()
+
 
 
 # Create router
@@ -75,7 +73,7 @@ async def register_user(
 
     # Create new user
     try:
-        hashed_password = hash_password(user_data.password)
+        hashed_password = authentication_service.hash_password(user_data.password)
         new_user = User(
             id=generate_uuid(),
             email=user_data.email,
@@ -122,7 +120,7 @@ async def login_user(
     )
     user = user_result.scalar_one_or_none()
 
-    if not user or not verify_password(login_data.password, user.password_hash):
+    if not user or not authentication_service.verify_password(login_data.password, user.password_hash):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid credentials",
@@ -135,8 +133,8 @@ async def login_user(
     await db.commit()
 
     # Create tokens
-    access_token = create_access_token(user.id)
-    refresh_token = create_refresh_token(user.id)
+    access_token = authentication_service.create_access_token(user.id)
+    refresh_token = authentication_service.create_refresh_token(user.id)
 
     return TokenResponse(
         access_token=access_token,
@@ -152,7 +150,7 @@ async def refresh_token(
 ) -> TokenResponse:
     """Refresh access token using refresh token"""
 
-    user_id = verify_token(refresh_data.refresh_token, "refresh")
+    user_id = authentication_service.verify_token(refresh_data.refresh_token, "refresh")
 
     if not user_id:
         raise HTTPException(
@@ -175,8 +173,8 @@ async def refresh_token(
         )
 
     # Create new access token (optionally new refresh token)
-    access_token = create_access_token(user.id)
-    new_refresh_token = create_refresh_token(user.id)  # Issue new refresh token for security
+    access_token = authentication_service.create_access_token(user.id)
+    new_refresh_token = authentication_service.create_refresh_token(user.id)  # Issue new refresh token for security
 
     return TokenResponse(
         access_token=access_token,
@@ -187,7 +185,7 @@ async def refresh_token(
 
 @router.get("/me", response_model=UserResponse)
 async def get_current_user_profile(
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_current_user_dep)
 ) -> UserResponse:
     """Get current user's profile information"""
     return UserResponse.from_orm(current_user)
@@ -196,7 +194,7 @@ async def get_current_user_profile(
 @router.put("/me", response_model=UserResponse)
 async def update_user_profile(
     update_data: Dict[str, Any],
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user_dep),
     db: AsyncSession = Depends(get_db)
 ) -> UserResponse:
     """Update current user's profile information"""
@@ -225,7 +223,7 @@ async def update_user_profile(
 
 @router.post("/logout")
 async def logout_user(
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_current_user_dep)
 ):
     """Logout user (client should delete tokens)"""
     # In a more sophisticated setup, we would maintain a token blacklist
@@ -237,7 +235,7 @@ async def logout_user(
 @router.post("/organizations", response_model=OrganizationResponse, status_code=status.HTTP_201_CREATED)
 async def create_organization(
     org_data: OrganizationCreateRequest,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user_dep),
     db: AsyncSession = Depends(get_db)
 ) -> OrganizationResponse:
     """Create a new organization"""
@@ -305,7 +303,7 @@ async def create_organization(
 
 @router.get("/organizations/my", response_model=list[OrganizationResponse])
 async def get_my_organizations(
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user_dep),
     db: AsyncSession = Depends(get_db)
 ) -> list[OrganizationResponse]:
     """Get all organizations user is a member of"""
@@ -334,7 +332,7 @@ async def get_my_organizations(
 @router.put("/organizations/set-active", response_model=dict)
 async def set_active_organization(
     request: SetActiveOrganizationRequest,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user_dep),
     db: AsyncSession = Depends(get_db)
 ):
     """Set user's active organization"""
@@ -370,7 +368,7 @@ async def set_active_organization(
 
 @router.get("/organizations/current", response_model=OrganizationResponse)
 async def get_current_organization_details(
-    organization: Organization = Depends(get_current_organization)
+    organization: Organization = Depends(get_current_organization_dep)
 ) -> OrganizationResponse:
     """Get current organization details (requires organization membership)"""
 
@@ -385,7 +383,7 @@ async def get_current_organization_details(
 
 @router.get("/auth-status")
 async def get_auth_status(
-    current_user: User = Depends(get_current_user_optional),
+    current_user: User = Depends(get_current_user_optional_dep),
     db: AsyncSession = Depends(get_db)
 ):
     """Get authentication and organization status for frontend routing"""
@@ -447,7 +445,7 @@ async def get_auth_status(
 async def list_users(
     skip: int = 0,
     limit: int = 100,
-    current_admin: User = Depends(get_current_admin_user),
+    current_admin: User = Depends(get_current_admin_user_dep),
     db: AsyncSession = Depends(get_db)
 ) -> list[UserResponse]:
     """List all users (admin only)"""
@@ -464,7 +462,7 @@ async def list_users(
 async def update_user_role(
     user_id: str,
     new_role: UserRole,
-    current_admin: User = Depends(get_current_admin_user),
+    current_admin: User = Depends(get_current_admin_user_dep),
     db: AsyncSession = Depends(get_db)
 ):
     """Update user role (admin only)"""
@@ -492,7 +490,7 @@ async def update_user_role(
 async def toggle_user_status(
     user_id: str,
     is_active: bool,
-    current_admin: User = Depends(get_current_admin_user),
+    current_admin: User = Depends(get_current_admin_user_dep),
     db: AsyncSession = Depends(get_db)
 ):
     """Activate or deactivate user account (admin only)"""

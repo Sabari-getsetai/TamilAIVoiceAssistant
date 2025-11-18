@@ -40,10 +40,10 @@ import {
 } from '@mui/icons-material';
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import ProtectedLayout from '../../../components/layout/ProtectedLayout';
-import { useDocuments, useDeleteDocument, useGetDocument, useReindexDocument } from '../../../hooks/useDocuments';
-import { formatNumber } from '../../../utils/format';
-import type { Document } from '../../../types';
+import AuthGuard from '@/components/auth/AuthGuard';
+import { useDocuments, useDeleteDocument, useGetDocument, useReindexDocument } from '@/hooks/useDocuments';
+import { formatNumber } from '@/utils/format';
+import type { Document } from '@/types';
 
 export default function DocumentsPage() {
   const router = useRouter();
@@ -79,7 +79,7 @@ export default function DocumentsPage() {
   };
 
   const handleBack = () => {
-    router.push('/admin');
+    router.push('/org');
   };
 
   const handleRefresh = () => {
@@ -171,7 +171,7 @@ export default function DocumentsPage() {
   };
 
   return (
-    <ProtectedLayout title="Documents">
+    <AuthGuard requireOrganization={true}>
         <Container maxWidth="lg">
         {/* Header */}
         <Box sx={{ mb: 4, display: 'flex', alignItems: 'center', gap: 2 }}>
@@ -230,9 +230,9 @@ export default function DocumentsPage() {
         {!isFetching && (documentList.length === 0) && (
           <Alert severity="info" sx={{ mb: 3 }}>
             No documents have been uploaded yet. 
-            <Button 
-              variant="text" 
-              onClick={() => router.push('/admin/upload')}
+            <Button
+              variant="text"
+              onClick={() => router.push('/org/documents')}
               sx={{ ml: 1 }}
             >
               Upload some documents
@@ -522,6 +522,6 @@ export default function DocumentsPage() {
           </Alert>
         </Snackbar>
         </Container>
-    </ProtectedLayout>
+    </AuthGuard>
   );
 }

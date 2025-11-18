@@ -74,9 +74,9 @@ export default function OrganizationSwitcher({ onNavigation }: OrganizationSwitc
   };
 
   const handleManageOrganizations = () => {
-    router.push('/admin/organizations');
+    router.push('/org/settings');
     if (onNavigation) {
-      onNavigation('/admin/organizations');
+      onNavigation('/org/settings');
     }
   };
 

@@ -10,7 +10,9 @@ Contains FastAPI routers for:
 """
 
 from .routes.auth import router as auth_router
-from .routes.admin_v2 import router as admin_v2_router  # Database-integrated admin endpoints
+from .routes.admin_v2 import router as admin_v2_router  # Database-integrated admin endpoints (LEGACY)
+from .routes.admin_system import router as admin_system_router  # System admin endpoints for dual dashboard
+from .routes.org_management import router as org_management_router  # Organization management endpoints
 from .routes.audit import router as audit_router  # Audit trail endpoints
 from .routes.chat import router as chat_router
 from .routes.speech import router as speech_router
@@ -21,7 +23,9 @@ from .routes.organization import router as organization_router
 
 __all__ = [
     "auth_router",
-    "admin_v2_router",
+    "admin_v2_router",  # Legacy - will be phased out
+    "admin_system_router",  # New system admin router
+    "org_management_router",  # New organization management router
     "audit_router",
     "chat_router",
     "speech_router",

@@ -18,7 +18,6 @@ import {
   Refresh as RefreshIcon,
 } from '@mui/icons-material';
 import { useRouter } from 'next/navigation';
-import ProtectedLayout from '../../components/layout/ProtectedLayout';
 import { useStats } from '../../hooks/useStats';
 import { formatNumber } from '../../utils/format';
 
@@ -36,15 +35,20 @@ export default function AdminDashboard() {
   };
 
   return (
-    <ProtectedLayout title="Admin Dashboard">
       <Container maxWidth="lg">
         <Box sx={{ mb: 4 }}>
           <Typography variant="h4" component="h1" gutterBottom fontWeight="bold">
-            Admin Dashboard
+            System Administration
           </Typography>
           <Typography variant="h6" color="text.secondary" paragraph>
-            Manage documents, monitor system performance, and configure settings
+            System-wide administration for platform management, user oversight, and global configuration
           </Typography>
+          <Alert severity="info" sx={{ mt: 2 }}>
+            This is the system administration panel. For organization management, please visit the
+            <Button variant="text" onClick={() => router.push('/org')} sx={{ mx: 1 }}>
+              Organization Dashboard
+            </Button>
+          </Alert>
         </Box>
 
         {/* System Status */}
@@ -135,57 +139,57 @@ export default function AdminDashboard() {
           )}
         </Box>
 
-        {/* Quick Actions */}
+        {/* System Administration Actions */}
         <Box sx={{ mb: 4 }}>
           <Typography variant="h5" gutterBottom sx={{ mb: 2 }}>
-            Quick Actions
+            System Administration
           </Typography>
-          <Box sx={{ 
-            display: 'grid', 
+          <Box sx={{
+            display: 'grid',
             gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr' },
-            gap: 3 
+            gap: 3
           }}>
-            <Card sx={{ cursor: 'pointer' }} onClick={() => handleNavigation('/admin/upload')}>
+            <Card sx={{ cursor: 'pointer' }} onClick={() => handleNavigation('/admin/users')}>
               <CardContent sx={{ textAlign: 'center', py: 4 }}>
                 <UploadIcon sx={{ fontSize: 48, color: 'primary.main', mb: 2 }} />
                 <Typography variant="h6" gutterBottom>
-                  Upload Documents
+                  Manage Users
                 </Typography>
                 <Typography variant="body2" color="text.secondary">
-                  Add new documents to the knowledge base
+                  View and manage all users across organizations
                 </Typography>
                 <Button variant="contained" sx={{ mt: 2 }}>
-                  Upload Files
+                  User Management
                 </Button>
               </CardContent>
             </Card>
 
-            <Card sx={{ cursor: 'pointer' }} onClick={() => handleNavigation('/admin/documents')}>
+            <Card sx={{ cursor: 'pointer' }} onClick={() => handleNavigation('/admin/organizations')}>
               <CardContent sx={{ textAlign: 'center', py: 4 }}>
                 <DocumentsIcon sx={{ fontSize: 48, color: 'secondary.main', mb: 2 }} />
                 <Typography variant="h6" gutterBottom>
-                  Manage Documents
+                  Manage Organizations
                 </Typography>
                 <Typography variant="body2" color="text.secondary">
-                  View and manage indexed documents
+                  View and manage all organizations in the system
                 </Typography>
                 <Button variant="contained" color="secondary" sx={{ mt: 2 }}>
-                  View Documents
+                  Organization Management
                 </Button>
               </CardContent>
             </Card>
 
-            <Card sx={{ cursor: 'pointer' }} onClick={() => handleNavigation('/admin/statistics')}>
+            <Card sx={{ cursor: 'pointer' }} onClick={() => handleNavigation('/admin/system-stats')}>
               <CardContent sx={{ textAlign: 'center', py: 4 }}>
                 <StatsIcon sx={{ fontSize: 48, color: 'info.main', mb: 2 }} />
                 <Typography variant="h6" gutterBottom>
-                  View Statistics
+                  System Analytics
                 </Typography>
                 <Typography variant="body2" color="text.secondary">
-                  Monitor system performance and usage
+                  Platform-wide statistics and performance monitoring
                 </Typography>
                 <Button variant="contained" color="info" sx={{ mt: 2 }}>
-                  View Stats
+                  View System Stats
                 </Button>
               </CardContent>
             </Card>
@@ -194,19 +198,18 @@ export default function AdminDashboard() {
               <CardContent sx={{ textAlign: 'center', py: 4 }}>
                 <SettingsIcon sx={{ fontSize: 48, color: 'warning.main', mb: 2 }} />
                 <Typography variant="h6" gutterBottom>
-                  System Settings
+                  Platform Settings
                 </Typography>
                 <Typography variant="body2" color="text.secondary">
-                  Configure system settings and reindex
+                  Global platform configuration and system settings
                 </Typography>
                 <Button variant="contained" color="warning" sx={{ mt: 2 }}>
-                  Settings
+                  Platform Settings
                 </Button>
               </CardContent>
             </Card>
           </Box>
         </Box>
         </Container>
-    </ProtectedLayout>
   );
 }

@@ -44,7 +44,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
       try {
         // Add timeout to prevent infinite loading
         const timeoutPromise = new Promise((_, reject) => {
-          setTimeout(() => reject(new Error('Authentication timeout')), 10000);
+          setTimeout(() => reject(new Error('Authentication timeout')), 30000);
         });
 
         // Check if user has valid token
@@ -106,13 +106,16 @@ export function AuthProvider({ children }: AuthProviderProps) {
         variant: 'success',
       });
 
-      // Check if user has an active organization
-      if (!loggedInUser.active_organization_id) {
-        // Redirect to organization setup if no active organization
+      // Check user role and redirect accordingly
+      if ([UserRole.ADMIN, UserRole.SUPERADMIN].includes(loggedInUser.role)) {
+        // System admins go to system admin dashboard regardless of organization
+        router.push('/admin');
+      } else if (!loggedInUser.active_organization_id) {
+        // Regular users need an organization - redirect to setup
         router.push('/setup/organization');
       } else {
-        // Redirect to admin dashboard if user has an organization
-        router.push('/admin');
+        // Regular users with organization go to org dashboard
+        router.push('/org');
       }
     } catch (error) {
       const authError = error as AuthError;
@@ -267,6 +270,7 @@ interface ProtectedRouteProps {
   children: ReactNode;
   requireAuth?: boolean;
   requireAdmin?: boolean;
+  requireSystemAdmin?: boolean;
   fallback?: ReactNode;
 }
 
@@ -274,6 +278,7 @@ export function ProtectedRoute({
   children,
   requireAuth = true,
   requireAdmin = false,
+  requireSystemAdmin = false,
   fallback = null,
 }: ProtectedRouteProps) {
   const { user, isAuthenticated, isLoading } = useAuth();
@@ -292,13 +297,19 @@ export function ProtectedRoute({
         return;
       }
 
-      if (requireAdmin && user && ![UserRole.ADMIN, UserRole.ORGANIZATION_ADMIN].includes(user.role)) {
-        console.log('🚫 Insufficient permissions, redirecting to home...');
+      if (requireSystemAdmin && user && ![UserRole.ADMIN, UserRole.SUPERADMIN].includes(user.role)) {
+        console.log('🚫 Insufficient system admin permissions, redirecting to home...');
+        router.push('/');
+        return;
+      }
+
+      if (requireAdmin && user && ![UserRole.ADMIN, UserRole.SUPERADMIN, UserRole.ORGANIZATION_ADMIN].includes(user.role)) {
+        console.log('🚫 Insufficient admin permissions, redirecting to home...');
         router.push('/');
         return;
       }
     }
-  }, [isAuthenticated, isLoading, requireAuth, requireAdmin, user, router]);
+  }, [isAuthenticated, isLoading, requireAuth, requireAdmin, requireSystemAdmin, user, router]);
 
   // Set timeout for loading state
   useEffect(() => {

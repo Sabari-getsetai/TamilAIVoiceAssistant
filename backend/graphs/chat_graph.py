@@ -556,12 +556,15 @@ async def synthesize_node(state: ChatState) -> ChatState:
         )
 
         if audio_data is not None:
+            # Get user_id from session state
+            user_id = state.get("user_id", "anonymous")
+            
             # Upload TTS audio to MinIO
             minio_key = await upload_tts_audio_to_minio(
                 audio_data=audio_data,
                 session_id=state['session_id'],
                 filename=output_filename,
-                user_id="anonymous"  # TODO: Get actual user_id when available
+                user_id=user_id
             )
 
             if minio_key:
@@ -1046,15 +1049,47 @@ def get_session_stats() -> Dict[str, Any]:
     try:
         async def _get_stats():
             manager = await get_or_create_session_manager()
-            # For now, return basic stats
-            # TODO: Implement proper stats aggregation from database
-            return {
-                "total_sessions": 0,
-                "active_sessions": 0,
-                "total_turns": 0,
-                "average_session_duration": 0.0,
-                "average_turn_time": 0.0
-            }
+            # Get stats from database using async generator
+            async for db_session in get_db():
+                try:
+                    from sqlalchemy import func, select
+                    from backend.database.models import ConversationSession, ConversationTurn, SessionStatus
+                    
+                    # Count total sessions
+                    total_result = await db_session.execute(
+                        select(func.count(ConversationSession.id))
+                    )
+                    total_sessions = total_result.scalar() or 0
+                    
+                    # Count active sessions
+                    active_result = await db_session.execute(
+                        select(func.count(ConversationSession.id))
+                        .where(ConversationSession.status == SessionStatus.ACTIVE)
+                    )
+                    active_sessions = active_result.scalar() or 0
+                    
+                    # Count total turns
+                    turns_result = await db_session.execute(
+                        select(func.count(ConversationTurn.id))
+                    )
+                    total_turns = turns_result.scalar() or 0
+                    
+                    return {
+                        "total_sessions": total_sessions,
+                        "active_sessions": active_sessions,
+                        "total_turns": total_turns,
+                        "average_session_duration": 0.0,  # TODO: Calculate from session data
+                        "average_turn_time": 0.0  # TODO: Calculate from turn processing_time
+                    }
+                except Exception as e:
+                    logger.error(f"Failed to get stats: {e}")
+                    return {
+                        "total_sessions": 0,
+                        "active_sessions": 0,
+                        "total_turns": 0,
+                        "average_session_duration": 0.0,
+                        "average_turn_time": 0.0
+                    }
         return loop.run_until_complete(_get_stats())
     finally:
         loop.close()

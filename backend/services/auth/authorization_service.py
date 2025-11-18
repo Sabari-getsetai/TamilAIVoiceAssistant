@@ -134,7 +134,10 @@ class AuthorizationService(BaseService):
         self,
         current_user: User = Depends("get_current_user")  # Will be resolved by dependency injection
     ) -> User:
-        """Ensure current user has admin privileges
+        """Ensure current user has admin privileges (backward compatibility)
+
+        DEPRECATED: Use get_current_system_admin_user for /admin routes
+        or get_current_organization_admin for /org routes
 
         Args:
             current_user: Current authenticated user
@@ -145,11 +148,35 @@ class AuthorizationService(BaseService):
         Raises:
             HTTPException: If user lacks admin privileges
         """
-        if current_user.role not in [UserRole.ADMIN, UserRole.ORGANIZATION_ADMIN]:
+        if current_user.role not in [UserRole.ADMIN, UserRole.SUPERADMIN, UserRole.ORGANIZATION_ADMIN]:
             self.logger.warning(f"Non-admin user attempted admin access: {current_user.id} ({current_user.role})")
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Admin privileges required"
+            )
+
+        return current_user
+
+    async def get_current_system_admin_user(
+        self,
+        current_user: User = Depends("get_current_user")  # Will be resolved by dependency injection
+    ) -> User:
+        """Ensure current user has system admin privileges for /admin dashboard
+
+        Args:
+            current_user: Current authenticated user
+
+        Returns:
+            User object if user has system admin privileges
+
+        Raises:
+            HTTPException: If user lacks system admin privileges
+        """
+        if current_user.role not in [UserRole.ADMIN, UserRole.SUPERADMIN]:
+            self.logger.warning(f"Non-system-admin user attempted system admin access: {current_user.id} ({current_user.role})")
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="System administrator privileges required"
             )
 
         return current_user
@@ -242,7 +269,7 @@ class AuthorizationService(BaseService):
         """
         membership = getattr(organization, '_current_user_membership', None)
 
-        if not membership or membership.role not in [OrganizationRole.ADMIN, OrganizationRole.OWNER]:
+        if not membership or membership.role not in [OrganizationRole.ORG_ADMIN, OrganizationRole.OWNER]:
             self.logger.warning(
                 f"Non-admin user attempted org admin access: "
                 f"user={getattr(membership, 'user_id', 'unknown')} "
@@ -252,6 +279,66 @@ class AuthorizationService(BaseService):
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Organization admin privileges required"
+            )
+
+        return organization
+
+    async def get_current_organization_owner(
+        self,
+        organization: Organization = Depends("get_current_organization")  # Will be resolved by dependency injection
+    ) -> Organization:
+        """Ensure current user is organization owner
+
+        Args:
+            organization: Current organization with attached membership
+
+        Returns:
+            Organization object if user is owner
+
+        Raises:
+            HTTPException: If user is not organization owner
+        """
+        membership = getattr(organization, '_current_user_membership', None)
+
+        if not membership or membership.role != OrganizationRole.OWNER:
+            self.logger.warning(
+                f"Non-owner user attempted owner access: "
+                f"user={getattr(membership, 'user_id', 'unknown')} "
+                f"role={getattr(membership, 'role', 'unknown')} "
+                f"org={organization.id}"
+            )
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Organization owner privileges required"
+            )
+
+        return organization
+
+    async def get_current_organization_member(
+        self,
+        organization: Organization = Depends("get_current_organization")  # Will be resolved by dependency injection
+    ) -> Organization:
+        """Ensure current user is organization member (any role)
+
+        Args:
+            organization: Current organization with attached membership
+
+        Returns:
+            Organization object if user is member
+
+        Raises:
+            HTTPException: If user is not organization member
+        """
+        membership = getattr(organization, '_current_user_membership', None)
+
+        if not membership:
+            self.logger.warning(
+                f"Non-member user attempted member access: "
+                f"org={organization.id}"
+            )
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Organization membership required"
             )
 
         return organization
@@ -307,7 +394,7 @@ class AuthorizationService(BaseService):
                 # Define role hierarchy for comparison
                 role_hierarchy = {
                     OrganizationRole.MEMBER: 1,
-                    OrganizationRole.ADMIN: 2,
+                    OrganizationRole.ORG_ADMIN: 2,
                     OrganizationRole.OWNER: 3
                 }
 
@@ -368,8 +455,16 @@ async def get_current_admin_user_dep(
     auth_service: AuthorizationService = Depends(get_authorization_service),
     current_user: User = Depends(get_current_user_dep)
 ) -> User:
-    """FastAPI dependency for admin user"""
+    """FastAPI dependency for admin user (DEPRECATED - use system admin or org admin)"""
     return await auth_service.get_current_admin_user(current_user)
+
+
+async def get_current_system_admin_user_dep(
+    auth_service: AuthorizationService = Depends(get_authorization_service),
+    current_user: User = Depends(get_current_user_dep)
+) -> User:
+    """FastAPI dependency for system admin user (/admin dashboard access)"""
+    return await auth_service.get_current_system_admin_user(current_user)
 
 
 async def get_current_organization_dep(
@@ -387,6 +482,22 @@ async def get_current_organization_admin_dep(
 ) -> Organization:
     """FastAPI dependency for organization admin"""
     return await auth_service.get_current_organization_admin(organization)
+
+
+async def get_current_organization_owner_dep(
+    auth_service: AuthorizationService = Depends(get_authorization_service),
+    organization: Organization = Depends(get_current_organization_dep)
+) -> Organization:
+    """FastAPI dependency for organization owner"""
+    return await auth_service.get_current_organization_owner(organization)
+
+
+async def get_current_organization_member_dep(
+    auth_service: AuthorizationService = Depends(get_authorization_service),
+    organization: Organization = Depends(get_current_organization_dep)
+) -> Organization:
+    """FastAPI dependency for organization member"""
+    return await auth_service.get_current_organization_member(organization)
 
 
 async def get_user_organizations_dep(

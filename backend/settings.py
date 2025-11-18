@@ -170,10 +170,11 @@ class Settings(BaseSettings):
     FRONTEND_URL: str = "http://localhost:3000"
 
     # JWT Authentication Configuration
-    JWT_SECRET_KEY: str = "tamil_jwt_secret_dev_change_in_production"
-    JWT_ALGORITHM: str = "HS256"
-    JWT_ACCESS_TOKEN_EXPIRE_MINUTES: int = 15
-    JWT_REFRESH_TOKEN_EXPIRE_DAYS: int = 7
+    JWT_SECRET_KEY: str = os.getenv("JWT_SECRET_KEY", "tamil_jwt_secret_dev_change_in_production")
+    JWT_ALGORITHM: str = os.getenv("JWT_ALGORITHM", "HS256")
+    JWT_ACCESS_TOKEN_EXPIRE_MINUTES: int = os.getenv("JWT_ACCESS_TOKEN_EXPIRE_MINUTES", 15)
+    JWT_REFRESH_TOKEN_EXPIRE_DAYS: int = os.getenv("JWT_REFRESH_TOKEN_EXPIRE_DAYS", 7)
+    
 
     # Admin User Seeding Configuration
     # Default admin user credentials for database seeding

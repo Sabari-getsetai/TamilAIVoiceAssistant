@@ -1,16 +1,16 @@
 'use client';
 
 /**
- * Enterprise Service Health Monitoring Dashboard
+ * Enterprise Service Health Monitor Dashboard
  *
  * Features:
- * - Real-time microservice health monitoring
+ * - Real-time microservice health Monitor
  * - Service dependency visualization
  * - Performance metrics and alerting
  * - Resource usage tracking
  * - Incident detection and response
  * - Historical trend analysis
- * - Auto-healing capabilities monitoring
+ * - Auto-healing capabilities Monitor
  */
 
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
@@ -31,7 +31,6 @@ import {
   ListItemIcon,
   ListItemSecondaryAction,
   LinearProgress,
-  CircularProgress,
   Paper,
   Table,
   TableBody,
@@ -41,9 +40,6 @@ import {
   TableRow,
   Stack,
   Badge,
-  Accordion,
-  AccordionSummary,
-  AccordionDetails,
   Switch,
   FormControlLabel,
   Select,
@@ -65,24 +61,16 @@ import {
   Error,
   CheckCircle,
   Speed,
-  CloudQueue,
-  NetworkCheck,
-  Security,
-  Dashboard,
-  Monitoring,
+  Monitor,
   Settings,
   RestartAlt,
-  Stop,
-  PlayArrow,
-  Build,
-  ExpandMore,
   Notifications,
   TrendingUp,
   TrendingDown,
   Info,
   HealthAndSafety,
   Api,
-  Database,
+  Dataset,
   Cloud,
 } from '@mui/icons-material';
 import {
@@ -95,13 +83,8 @@ import {
   CartesianGrid,
   Tooltip as RechartsTooltip,
   ResponsiveContainer,
-  BarChart,
-  Bar,
-  PieChart,
-  Pie,
-  Cell,
 } from 'recharts';
-import { format, subMinutes, subHours } from 'date-fns';
+import { format, subHours } from 'date-fns';
 import { enqueueSnackbar } from 'notistack';
 
 import { MinimalErrorBoundary } from '../common/ErrorBoundary';
@@ -125,11 +108,11 @@ const SERVICES = [
   },
   {
     id: 'postgres',
-    name: 'PostgreSQL Database',
+    name: 'PostgreSQL Dataset',
     description: 'Primary data store',
-    type: 'database',
-    icon: Database,
-    endpoint: 'http://localhost:8001/health/database',
+    type: 'Dataset',
+    icon: Dataset,
+    endpoint: 'http://localhost:8001/health/Dataset',
     critical: true,
     expectedResponseTime: 50,
   },
@@ -246,7 +229,7 @@ const SERVICE_STATUS_COLORS = {
 
 const SERVICE_TYPE_COLORS = {
   api: '#2196f3',
-  database: '#4caf50',
+  Dataset: '#4caf50',
   cache: '#ff9800',
   storage: '#9c27b0',
   ai: '#e91e63',
@@ -381,7 +364,7 @@ export const ServiceHealthDashboard: React.FC<ServiceHealthDashboardProps> = ({
               Service Health Dashboard
             </Typography>
             <Typography variant="body1" color="text.secondary">
-              Real-time microservice monitoring and health management
+              Real-time microservice Monitor and health management
             </Typography>
           </Box>
 
@@ -538,7 +521,7 @@ export const ServiceHealthDashboard: React.FC<ServiceHealthDashboardProps> = ({
             <Card>
               <CardContent>
                 <Typography variant="h6" gutterBottom>
-                  <Monitoring sx={{ mr: 1, verticalAlign: 'middle' }} />
+                  <Monitor sx={{ mr: 1, verticalAlign: 'middle' }} />
                   Service Status
                 </Typography>
 

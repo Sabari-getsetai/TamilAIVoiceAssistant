@@ -8,7 +8,7 @@ from pathlib import Path
 import asyncio
 
 from backend.settings import settings
-from backend.api import auth_router, admin_v2_router, audit_router, chat_router, speech_router, audio_router, simple_chat_router, websocket_router, organization_router
+from backend.api import auth_router, admin_v2_router, admin_system_router, org_management_router, audit_router, chat_router, speech_router, audio_router, simple_chat_router, websocket_router, organization_router
 from backend.api.microservices import router as microservices_router
 from backend.middleware.audit_middleware import AuditMiddleware
 
@@ -35,17 +35,26 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
 # Add audit middleware for enterprise compliance
 app.add_middleware(
     AuditMiddleware,
     exclude_paths=["/health", "/docs", "/openapi.json", "/favicon.ico"],
-    log_request_body=False,  # Set to True for detailed request logging
-    log_response_body=False  # Set to True for detailed response logging
+    log_request_body=True,  # Set to True for detailed request logging
+    log_response_body=True  # Set to True for detailed response logging
 )
+
+
 
 # Include routers
 app.include_router(auth_router)
-app.include_router(admin_v2_router)  # Database-integrated admin endpoints
+
+# Dual Dashboard Architecture
+app.include_router(admin_system_router)  # System admin endpoints (/api/admin/*)
+app.include_router(org_management_router)  # Organization management endpoints (/api/org/*)
+
+# Legacy and other endpoints
+app.include_router(admin_v2_router)  # Legacy admin endpoints (will be phased out)
 app.include_router(audit_router)  # Audit trail endpoints
 app.include_router(chat_router)
 app.include_router(speech_router)

@@ -22,8 +22,13 @@ import {
   Home as HomeIcon,
   Business as OrganizationIcon,
   People as PeopleIcon,
+  SupervisorAccount as AdminIcon,
+  Storage as DataIcon,
+  MonitorHeart as SystemIcon,
 } from '@mui/icons-material';
 import { usePathname, useRouter } from 'next/navigation';
+import { useAuth } from '@/contexts/AuthContext';
+import { UserRole } from '@/types/auth';
 import OrganizationSwitcher from '../organization/OrganizationSwitcher';
 
 interface SidebarProps {
@@ -32,16 +37,31 @@ interface SidebarProps {
   width?: number;
 }
 
-const menuItems = [
-  { label: 'Home', icon: <HomeIcon />, path: '/' },
-  { label: 'Admin Dashboard', icon: <DashboardIcon />, path: '/admin' },
-  { label: 'Upload Documents', icon: <UploadIcon />, path: '/admin/upload' },
-  { label: 'Manage Documents', icon: <DocumentsIcon />, path: '/admin/documents' },
-  { label: 'Manage Organization', icon: <OrganizationIcon />, path: '/admin/organizations' },
-  { label: 'Team Members', icon: <PeopleIcon />, path: '/admin/organizations/members' },
-  { label: 'Statistics', icon: <StatsIcon />, path: '/admin/statistics' },
-  { label: 'Settings', icon: <SettingsIcon />, path: '/admin/settings' },
-];
+// Dynamic menu items based on user role
+const getMenuItems = (userRole: UserRole | null) => {
+  // System Admin menu for ADMIN and SUPERADMIN users
+  if (userRole === UserRole.ADMIN || userRole === UserRole.SUPERADMIN) {
+    return [
+      { label: 'Home', icon: <HomeIcon />, path: '/' },
+      { label: 'System Dashboard', icon: <DashboardIcon />, path: '/admin' },
+      { label: 'Manage Users', icon: <AdminIcon />, path: '/admin/users' },
+      { label: 'System Organizations', icon: <OrganizationIcon />, path: '/admin/organizations' },
+      { label: 'Microservices', icon: <SystemIcon />, path: '/admin/microservices' },
+      { label: 'Audit Trail', icon: <DataIcon />, path: '/admin/audit' },
+      { label: 'System Settings', icon: <SettingsIcon />, path: '/admin/settings' },
+    ];
+  }
+
+  // Organization menu for organization members (OWNER, ORG_ADMIN, MEMBER)
+  return [
+    { label: 'Home', icon: <HomeIcon />, path: '/' },
+    { label: 'Organization Dashboard', icon: <DashboardIcon />, path: '/org' },
+    { label: 'Documents', icon: <DocumentsIcon />, path: '/org/documents' },
+    { label: 'Team Members', icon: <PeopleIcon />, path: '/org/members' },
+    { label: 'Analytics', icon: <StatsIcon />, path: '/org/analytics' },
+    { label: 'Organization Settings', icon: <SettingsIcon />, path: '/org/settings' },
+  ];
+};
 
 const voiceItems = [
   { label: 'Voice Assistant', icon: <VoiceIcon />, path: '/voice' },
@@ -50,6 +70,10 @@ const voiceItems = [
 export default function Sidebar({ open, onClose, width = 280 }: SidebarProps) {
   const pathname = usePathname();
   const router = useRouter();
+  const { user } = useAuth();
+
+  // Get dynamic menu items based on user role
+  const menuItems = getMenuItems(user?.role || null);
 
   const handleNavigation = (path: string) => {
     router.push(path);
@@ -82,14 +106,18 @@ export default function Sidebar({ open, onClose, width = 280 }: SidebarProps) {
           Tamil AI Assistant
         </Typography>
         <Typography variant="body2" color="text.secondary">
-          Admin Dashboard
+          {user?.role === UserRole.ADMIN || user?.role === UserRole.SUPERADMIN
+            ? 'System Administration'
+            : 'Organization Dashboard'}
         </Typography>
       </Box>
 
       <Divider />
 
-      {/* Organization Switcher */}
-      <OrganizationSwitcher onNavigation={handleNavigation} />
+      {/* Organization Switcher - Only show for organization members */}
+      {user?.role !== UserRole.ADMIN && user?.role !== UserRole.SUPERADMIN && (
+        <OrganizationSwitcher onNavigation={handleNavigation} />
+      )}
 
       <List sx={{ flexGrow: 1 }}>
         {menuItems.map((item) => (

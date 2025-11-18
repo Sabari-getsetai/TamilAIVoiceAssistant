@@ -18,7 +18,6 @@ from sqlalchemy import select, and_, func
 
 from backend.database.connection import get_db
 from backend.database.models import Organization, OrganizationMember, User, OrganizationRole
-from backend.api.routes.auth import get_current_user
 from backend.services.organization_service import OrganizationService
 from backend.api.request_response.OrganizationReqResp import (
     CreateOrganizationRequest,
@@ -27,6 +26,10 @@ from backend.api.request_response.OrganizationReqResp import (
     OrganizationMemberResponse,
     InviteMemberRequest,
     UpdateMemberRoleRequest)
+
+from backend.services.auth import (
+    get_current_user_dep as get_current_user
+)
 
 from backend.api.helper.OrganizationHelper import (
     check_organization_permission,

@@ -1,438 +1,399 @@
 'use client';
 
+import React, { useState } from 'react';
 import {
-  Container,
-  Typography,
   Box,
+  Typography,
+  Button,
+  Paper,
+  Table,
+  TableBody,
+  TableCell,
+  TableContainer,
+  TableHead,
+  TableRow,
+  Chip,
+  IconButton,
+  Alert,
+  Menu,
+  ListItemIcon,
+  ListItemText,
+  MenuItem,
+  TextField,
+  InputAdornment,
   Card,
   CardContent,
-  Button,
-  Alert,
-  LinearProgress,
   Grid,
-  Chip,
-  Divider,
-  Avatar,
-  Stack,
-  IconButton,
-  Tooltip,
 } from '@mui/material';
 import {
+  Add as AddIcon,
+  MoreVert as MoreVertIcon,
+  Visibility as ViewIcon,
+  Settings as SettingsIcon,
+  Block as SuspendIcon,
+  CheckCircle as ActivateIcon,
+  Delete as DeleteIcon,
+  Search as SearchIcon,
   Business as BusinessIcon,
   People as PeopleIcon,
-  Settings as SettingsIcon,
-  Timeline as TimelineIcon,
-  Edit as EditIcon,
-  Group as GroupIcon,
-  AdminPanelSettings as AdminIcon,
-  Person as PersonIcon,
-  Refresh as RefreshIcon,
-  ArrowBack as BackIcon,
+  Description as DocumentIcon,
+  Analytics as AnalyticsIcon,
 } from '@mui/icons-material';
-import { useState, useEffect } from 'react';
-import { useRouter } from 'next/navigation';
-import ProtectedLayout from '../../../components/layout/ProtectedLayout';
-import { useOrganization } from '@/contexts/OrganizationContext';
-import { formatNumber } from '@/utils/format';
 
-// Mock data for recent activity (will be replaced with real API calls)
-interface ActivityItem {
+// Mock organization data - replace with actual API integration
+interface OrganizationSummary {
   id: string;
-  type: 'member_joined' | 'member_removed' | 'role_changed' | 'settings_updated';
-  message: string;
-  timestamp: Date;
-  user?: string;
+  name: string;
+  description: string;
+  ownerName: string;
+  ownerEmail: string;
+  memberCount: number;
+  documentCount: number;
+  status: 'active' | 'suspended' | 'pending';
+  createdAt: string;
+  lastActivity: string;
+  storageUsed: number; // in MB
 }
 
-export default function OrganizationManagementPage() {
-  const router = useRouter();
-  const {
-    currentOrganization,
-    isLoading,
-    error,
-    refreshOrganizations,
-    clearError
-  } = useOrganization();
+const mockOrganizations: OrganizationSummary[] = [
+  {
+    id: '1',
+    name: 'TechCorp Inc',
+    description: 'Technology company focused on AI solutions',
+    ownerName: 'John Doe',
+    ownerEmail: 'john@techcorp.com',
+    memberCount: 15,
+    documentCount: 245,
+    status: 'active',
+    createdAt: '2024-01-15T10:30:00Z',
+    lastActivity: '2024-11-16T09:15:00Z',
+    storageUsed: 1200,
+  },
+  {
+    id: '2',
+    name: 'StartupHub',
+    description: 'Innovation hub for startups',
+    ownerName: 'Jane Smith',
+    ownerEmail: 'jane@startuphub.com',
+    memberCount: 8,
+    documentCount: 120,
+    status: 'active',
+    createdAt: '2024-03-22T14:20:00Z',
+    lastActivity: '2024-11-15T16:45:00Z',
+    storageUsed: 580,
+  },
+  {
+    id: '3',
+    name: 'Research Labs',
+    description: 'Academic research organization',
+    ownerName: 'Dr. Mike Johnson',
+    ownerEmail: 'mike@researchlabs.edu',
+    memberCount: 25,
+    documentCount: 890,
+    status: 'active',
+    createdAt: '2024-02-10T09:00:00Z',
+    lastActivity: '2024-11-14T11:30:00Z',
+    storageUsed: 3400,
+  },
+];
 
-  const [refreshing, setRefreshing] = useState(false);
+export default function AdminOrganizationsPage() {
+  const [organizations] = useState<OrganizationSummary[]>(mockOrganizations);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [menuAnchor, setMenuAnchor] = useState<null | HTMLElement>(null);
+  const [selectedOrg, setSelectedOrg] = useState<OrganizationSummary | null>(null);
 
-  // Mock recent activity data
-  const [recentActivity] = useState<ActivityItem[]>([
-    {
-      id: '1',
-      type: 'member_joined',
-      message: 'John Doe joined the organization',
-      timestamp: new Date(Date.now() - 2 * 60 * 60 * 1000), // 2 hours ago
-      user: 'John Doe'
-    },
-    {
-      id: '2',
-      type: 'role_changed',
-      message: 'Sarah Admin was promoted to Admin',
-      timestamp: new Date(Date.now() - 24 * 60 * 60 * 1000), // 1 day ago
-      user: 'Sarah Admin'
-    },
-    {
-      id: '3',
-      type: 'settings_updated',
-      message: 'Organization settings were updated',
-      timestamp: new Date(Date.now() - 3 * 24 * 60 * 60 * 1000), // 3 days ago
-    }
-  ]);
+  const filteredOrganizations = organizations.filter(org =>
+    org.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    org.description.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    org.ownerName.toLowerCase().includes(searchTerm.toLowerCase())
+  );
 
-  useEffect(() => {
-    // Clear any existing errors when component mounts
-    if (error) {
-      clearError();
-    }
-  }, [error, clearError]);
+  // Calculate summary stats
+  const totalOrgs = organizations.length;
+  const totalMembers = organizations.reduce((sum, org) => sum + org.memberCount, 0);
+  const totalDocuments = organizations.reduce((sum, org) => sum + org.documentCount, 0);
+  const totalStorage = organizations.reduce((sum, org) => sum + org.storageUsed, 0);
 
-  const handleRefresh = async () => {
-    setRefreshing(true);
-    try {
-      await refreshOrganizations();
-    } catch (err) {
-      console.error('Failed to refresh organization data:', err);
-    } finally {
-      setRefreshing(false);
-    }
+  const handleMenuOpen = (event: React.MouseEvent<HTMLElement>, org: OrganizationSummary) => {
+    setMenuAnchor(event.currentTarget);
+    setSelectedOrg(org);
   };
 
-  const handleNavigation = (path: string) => {
-    router.push(path);
+  const handleMenuClose = () => {
+    setMenuAnchor(null);
+    setSelectedOrg(null);
   };
 
-  const handleBack = () => {
-    router.push('/admin');
-  };
-
-  const formatRelativeTime = (date: Date) => {
-    const now = new Date();
-    const diffMs = now.getTime() - date.getTime();
-    const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
-    const diffDays = Math.floor(diffHours / 24);
-
-    if (diffHours < 1) {
-      return 'Just now';
-    } else if (diffHours < 24) {
-      return `${diffHours} hour${diffHours > 1 ? 's' : ''} ago`;
-    } else {
-      return `${diffDays} day${diffDays > 1 ? 's' : ''} ago`;
-    }
-  };
-
-  const getActivityIcon = (type: ActivityItem['type']) => {
-    switch (type) {
-      case 'member_joined':
-        return <PersonIcon color="success" />;
-      case 'member_removed':
-        return <PersonIcon color="error" />;
-      case 'role_changed':
-        return <AdminIcon color="warning" />;
-      case 'settings_updated':
-        return <SettingsIcon color="info" />;
-      default:
-        return <BusinessIcon />;
-    }
-  };
-
-  const getRoleColor = (role: string) => {
-    switch (role?.toLowerCase()) {
-      case 'owner':
+  const getStatusColor = (status: string) => {
+    switch (status) {
+      case 'active':
+        return 'success';
+      case 'suspended':
         return 'error';
-      case 'admin':
+      case 'pending':
         return 'warning';
-      case 'member':
       default:
         return 'default';
     }
   };
 
-  if (isLoading) {
-    return (
-      <ProtectedLayout title="Organization Management">
-        <Container maxWidth="lg">
-          <Box sx={{ mt: 4 }}>
-            <Typography variant="h4" gutterBottom>
-              Loading Organization...
-            </Typography>
-            <LinearProgress />
-          </Box>
-        </Container>
-      </ProtectedLayout>
-    );
-  }
+  const formatDate = (dateString: string) => {
+    return new Date(dateString).toLocaleDateString('en-US', {
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric',
+    });
+  };
 
-  if (!currentOrganization) {
-    return (
-      <ProtectedLayout title="Organization Management">
-        <Container maxWidth="lg">
-          <Box sx={{ mt: 4 }}>
-            <Alert severity="warning">
-              No active organization found. Please create or join an organization first.
-            </Alert>
-          </Box>
-        </Container>
-      </ProtectedLayout>
-    );
-  }
+  const formatStorage = (mb: number) => {
+    if (mb < 1000) {
+      return `${mb} MB`;
+    }
+    return `${(mb / 1000).toFixed(1)} GB`;
+  };
 
   return (
-    <ProtectedLayout title="Organization Management">
-      <Container maxWidth="lg">
-        {/* Header */}
-        <Box sx={{ mb: 4, display: 'flex', alignItems: 'center', gap: 2 }}>
-          <IconButton onClick={handleBack} sx={{ mr: 1 }}>
-            <BackIcon />
-          </IconButton>
-          <Box sx={{ flexGrow: 1 }}>
-            <Typography variant="h4" component="h1" gutterBottom fontWeight="bold">
-              Organization Management
-            </Typography>
-            <Typography variant="h6" color="text.secondary">
-              Manage members, settings, and organization details
-            </Typography>
-          </Box>
-          <Tooltip title="Refresh data">
-            <IconButton
-              onClick={handleRefresh}
-              disabled={refreshing}
-              color="primary"
-            >
-              <RefreshIcon sx={{
-                animation: refreshing ? 'spin 1s linear infinite' : 'none',
-                '@keyframes spin': {
-                  '0%': { transform: 'rotate(0deg)' },
-                  '100%': { transform: 'rotate(360deg)' }
-                }
-              }} />
-            </IconButton>
-          </Tooltip>
-        </Box>
-
-        {error && (
-          <Alert severity="error" sx={{ mb: 3 }} onClose={clearError}>
-            {error}
-          </Alert>
-        )}
-
-        {/* Organization Overview */}
-        <Card sx={{ mb: 4 }}>
-          <CardContent sx={{ p: 4 }}>
-            <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 3, mb: 3 }}>
-              <Avatar
-                sx={{
-                  width: 80,
-                  height: 80,
-                  bgcolor: 'primary.main',
-                  fontSize: '2rem'
-                }}
-              >
-                <BusinessIcon fontSize="large" />
-              </Avatar>
-              <Box sx={{ flexGrow: 1 }}>
-                <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 1 }}>
-                  <Typography variant="h4" component="h2" fontWeight="bold">
-                    {currentOrganization.name}
-                  </Typography>
-                  <Chip
-                    label={currentOrganization.user_role || currentOrganization.current_user_role || 'Member'}
-                    color={getRoleColor(currentOrganization.user_role || currentOrganization.current_user_role || 'member') as any}
-                    size="small"
-                  />
-                </Box>
-                {currentOrganization.description && (
-                  <Typography variant="body1" color="text.secondary" sx={{ mb: 2 }}>
-                    {currentOrganization.description}
-                  </Typography>
-                )}
-                <Stack direction="row" spacing={2} flexWrap="wrap">
-                  {currentOrganization.industry && (
-                    <Chip label={currentOrganization.industry} variant="outlined" size="small" />
-                  )}
-                  {currentOrganization.size && (
-                    <Chip
-                      label={`${currentOrganization.size.charAt(0).toUpperCase() + currentOrganization.size.slice(1)} Size`}
-                      variant="outlined"
-                      size="small"
-                    />
-                  )}
-                  <Chip
-                    label={`Created ${new Date(currentOrganization.created_at).toLocaleDateString()}`}
-                    variant="outlined"
-                    size="small"
-                  />
-                </Stack>
-              </Box>
-              <Button
-                variant="outlined"
-                startIcon={<EditIcon />}
-                onClick={() => handleNavigation('/admin/organizations/settings')}
-                sx={{ minWidth: 'auto' }}
-              >
-                Edit
-              </Button>
-            </Box>
-
-            <Divider sx={{ my: 3 }} />
-
-            {/* Organization Stats */}
-            <Grid container spacing={3}>
-              <Grid size={{ xs: 12, sm: 6, md: 3 }}>
-                <Box sx={{ textAlign: 'center' }}>
-                  <Typography color="text.secondary" variant="body2" gutterBottom>
-                    Total Members
-                  </Typography>
-                  <Typography variant="h3" color="primary.main" fontWeight="bold">
-                    {formatNumber(currentOrganization.member_count || 0)}
-                  </Typography>
-                </Box>
-              </Grid>
-              <Grid size={{ xs: 12, sm: 6, md: 3 }}>
-                <Box sx={{ textAlign: 'center' }}>
-                  <Typography color="text.secondary" variant="body2" gutterBottom>
-                    Plan
-                  </Typography>
-                  <Typography variant="h6" color="text.primary" fontWeight="medium">
-                    {currentOrganization.subscription_plan?.charAt(0).toUpperCase() +
-                     currentOrganization.subscription_plan?.slice(1) || 'Free'}
-                  </Typography>
-                </Box>
-              </Grid>
-              <Grid size={{ xs: 12, sm: 6, md: 3 }}>
-                <Box sx={{ textAlign: 'center' }}>
-                  <Typography color="text.secondary" variant="body2" gutterBottom>
-                    Status
-                  </Typography>
-                  <Chip
-                    label={currentOrganization.subscription_status || 'Active'}
-                    color={currentOrganization.subscription_status === 'active' ? 'success' : 'warning'}
-                    size="small"
-                  />
-                </Box>
-              </Grid>
-              <Grid size={{ xs: 12, sm: 6, md: 3 }}>
-                <Box sx={{ textAlign: 'center' }}>
-                  <Typography color="text.secondary" variant="body2" gutterBottom>
-                    Timezone
-                  </Typography>
-                  <Typography variant="body1" color="text.primary">
-                    {currentOrganization.timezone || 'UTC'}
-                  </Typography>
-                </Box>
-              </Grid>
-            </Grid>
-          </CardContent>
-        </Card>
-
-        {/* Quick Actions */}
-        <Box sx={{ mb: 4 }}>
-          <Typography variant="h5" gutterBottom sx={{ mb: 3 }}>
-            Quick Actions
+    <Box sx={{ p: 3 }}>
+      {/* Header */}
+      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 4 }}>
+        <div>
+          <Typography variant="h4" component="h1" gutterBottom>
+            Organization Management
           </Typography>
-          <Grid container spacing={3}>
-            <Grid size={{ xs: 12, sm: 6, md: 4 }}>
-              <Card sx={{ cursor: 'pointer', '&:hover': { boxShadow: 4 } }} onClick={() => handleNavigation('/admin/organizations/members')}>
-                <CardContent sx={{ textAlign: 'center', py: 4 }}>
-                  <PeopleIcon sx={{ fontSize: 48, color: 'primary.main', mb: 2 }} />
-                  <Typography variant="h6" gutterBottom>
-                    Manage Members
-                  </Typography>
-                  <Typography variant="body2" color="text.secondary">
-                    Invite new members, update roles, and manage team access
-                  </Typography>
-                </CardContent>
-              </Card>
-            </Grid>
+          <Typography variant="body1" color="text.secondary">
+            System-wide view and management of all organizations
+          </Typography>
+        </div>
+        <Button
+          variant="contained"
+          startIcon={<AddIcon />}
+          onClick={() => {/* TODO: Implement organization creation */}}
+        >
+          Create Organization
+        </Button>
+      </Box>
 
-            <Grid size={{ xs: 12, sm: 6, md: 4 }}>
-              <Card sx={{ cursor: 'pointer', '&:hover': { boxShadow: 4 } }} onClick={() => handleNavigation('/admin/organizations/settings')}>
-                <CardContent sx={{ textAlign: 'center', py: 4 }}>
-                  <SettingsIcon sx={{ fontSize: 48, color: 'secondary.main', mb: 2 }} />
-                  <Typography variant="h6" gutterBottom>
-                    Organization Settings
-                  </Typography>
-                  <Typography variant="body2" color="text.secondary">
-                    Update organization details, billing, and preferences
-                  </Typography>
-                </CardContent>
-              </Card>
-            </Grid>
-
-            <Grid size={{ xs: 12, sm: 6, md: 4 }}>
-              <Card sx={{ cursor: 'pointer', '&:hover': { boxShadow: 4 } }} onClick={() => handleNavigation('/admin/statistics')}>
-                <CardContent sx={{ textAlign: 'center', py: 4 }}>
-                  <TimelineIcon sx={{ fontSize: 48, color: 'info.main', mb: 2 }} />
-                  <Typography variant="h6" gutterBottom>
-                    Analytics & Usage
-                  </Typography>
-                  <Typography variant="body2" color="text.secondary">
-                    View organization usage statistics and insights
-                  </Typography>
-                </CardContent>
-              </Card>
-            </Grid>
-          </Grid>
-        </Box>
-
-        {/* Recent Activity */}
-        <Card>
-          <CardContent>
-            <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 3 }}>
-              <Typography variant="h5" gutterBottom>
-                Recent Activity
+      {/* Summary Cards */}
+      <Grid container spacing={3} sx={{ mb: 4 }}>
+        <Grid item xs={12} sm={6} md={3}>
+          <Card>
+            <CardContent sx={{ textAlign: 'center' }}>
+              <BusinessIcon sx={{ fontSize: 40, mb: 1, color: 'primary.main' }} />
+              <Typography variant="h4" component="div">
+                {totalOrgs}
               </Typography>
-              <Button
-                variant="text"
-                size="small"
-                onClick={() => handleNavigation('/admin/organizations/activity')}
-              >
-                View All
-              </Button>
-            </Box>
+              <Typography variant="body2" color="text.secondary">
+                Organizations
+              </Typography>
+            </CardContent>
+          </Card>
+        </Grid>
 
-            {recentActivity.length === 0 ? (
-              <Box sx={{ textAlign: 'center', py: 4 }}>
-                <GroupIcon sx={{ fontSize: 64, color: 'text.disabled', mb: 2 }} />
-                <Typography variant="body1" color="text.secondary">
-                  No recent activity to show
-                </Typography>
-                <Typography variant="body2" color="text.disabled">
-                  Organization activity will appear here
-                </Typography>
-              </Box>
+        <Grid item xs={12} sm={6} md={3}>
+          <Card>
+            <CardContent sx={{ textAlign: 'center' }}>
+              <PeopleIcon sx={{ fontSize: 40, mb: 1, color: 'secondary.main' }} />
+              <Typography variant="h4" component="div">
+                {totalMembers}
+              </Typography>
+              <Typography variant="body2" color="text.secondary">
+                Total Members
+              </Typography>
+            </CardContent>
+          </Card>
+        </Grid>
+
+        <Grid item xs={12} sm={6} md={3}>
+          <Card>
+            <CardContent sx={{ textAlign: 'center' }}>
+              <DocumentIcon sx={{ fontSize: 40, mb: 1, color: 'info.main' }} />
+              <Typography variant="h4" component="div">
+                {totalDocuments}
+              </Typography>
+              <Typography variant="body2" color="text.secondary">
+                Total Documents
+              </Typography>
+            </CardContent>
+          </Card>
+        </Grid>
+
+        <Grid item xs={12} sm={6} md={3}>
+          <Card>
+            <CardContent sx={{ textAlign: 'center' }}>
+              <AnalyticsIcon sx={{ fontSize: 40, mb: 1, color: 'success.main' }} />
+              <Typography variant="h4" component="div">
+                {formatStorage(totalStorage)}
+              </Typography>
+              <Typography variant="body2" color="text.secondary">
+                Storage Used
+              </Typography>
+            </CardContent>
+          </Card>
+        </Grid>
+      </Grid>
+
+      {/* Search */}
+      <Box sx={{ mb: 3 }}>
+        <TextField
+          fullWidth
+          placeholder="Search organizations by name, description, or owner..."
+          value={searchTerm}
+          onChange={(e) => setSearchTerm(e.target.value)}
+          InputProps={{
+            startAdornment: (
+              <InputAdornment position="start">
+                <SearchIcon />
+              </InputAdornment>
+            ),
+          }}
+          sx={{ maxWidth: 500 }}
+        />
+      </Box>
+
+      {/* Organizations Table */}
+      <TableContainer component={Paper}>
+        <Table>
+          <TableHead>
+            <TableRow>
+              <TableCell>Organization</TableCell>
+              <TableCell>Owner</TableCell>
+              <TableCell>Members</TableCell>
+              <TableCell>Documents</TableCell>
+              <TableCell>Storage</TableCell>
+              <TableCell>Status</TableCell>
+              <TableCell>Created</TableCell>
+              <TableCell>Actions</TableCell>
+            </TableRow>
+          </TableHead>
+          <TableBody>
+            {filteredOrganizations.length === 0 ? (
+              <TableRow>
+                <TableCell colSpan={8} sx={{ textAlign: 'center', py: 4 }}>
+                  {searchTerm ? (
+                    <Typography variant="body2" color="text.secondary">
+                      No organizations found matching "{searchTerm}"
+                    </Typography>
+                  ) : (
+                    <Typography variant="body2" color="text.secondary">
+                      No organizations available
+                    </Typography>
+                  )}
+                </TableCell>
+              </TableRow>
             ) : (
-              <Box>
-                {recentActivity.map((activity, index) => (
-                  <Box
-                    key={activity.id}
-                    sx={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: 2,
-                      py: 2,
-                      borderBottom: index < recentActivity.length - 1 ? '1px solid' : 'none',
-                      borderBottomColor: 'divider'
-                    }}
-                  >
-                    <Avatar sx={{ width: 40, height: 40, bgcolor: 'background.paper' }}>
-                      {getActivityIcon(activity.type)}
-                    </Avatar>
-                    <Box sx={{ flexGrow: 1 }}>
-                      <Typography variant="body1">
-                        {activity.message}
+              filteredOrganizations.map((org) => (
+                <TableRow key={org.id} hover>
+                  <TableCell>
+                    <Box>
+                      <Typography variant="body2" fontWeight="medium">
+                        {org.name}
                       </Typography>
                       <Typography variant="caption" color="text.secondary">
-                        {formatRelativeTime(activity.timestamp)}
+                        {org.description}
                       </Typography>
                     </Box>
-                  </Box>
-                ))}
-              </Box>
+                  </TableCell>
+                  <TableCell>
+                    <Box>
+                      <Typography variant="body2">
+                        {org.ownerName}
+                      </Typography>
+                      <Typography variant="caption" color="text.secondary">
+                        {org.ownerEmail}
+                      </Typography>
+                    </Box>
+                  </TableCell>
+                  <TableCell>
+                    <Typography variant="body2">
+                      {org.memberCount} members
+                    </Typography>
+                  </TableCell>
+                  <TableCell>
+                    <Typography variant="body2">
+                      {org.documentCount} docs
+                    </Typography>
+                  </TableCell>
+                  <TableCell>
+                    <Typography variant="body2">
+                      {formatStorage(org.storageUsed)}
+                    </Typography>
+                  </TableCell>
+                  <TableCell>
+                    <Chip
+                      label={org.status.toUpperCase()}
+                      color={getStatusColor(org.status) as any}
+                      size="small"
+                    />
+                  </TableCell>
+                  <TableCell>
+                    <Typography variant="body2">
+                      {formatDate(org.createdAt)}
+                    </Typography>
+                  </TableCell>
+                  <TableCell>
+                    <IconButton
+                      size="small"
+                      onClick={(e) => handleMenuOpen(e, org)}
+                    >
+                      <MoreVertIcon />
+                    </IconButton>
+                  </TableCell>
+                </TableRow>
+              ))
             )}
-          </CardContent>
-        </Card>
-      </Container>
-    </ProtectedLayout>
+          </TableBody>
+        </Table>
+      </TableContainer>
+
+      {/* Organization Actions Menu */}
+      <Menu
+        anchorEl={menuAnchor}
+        open={Boolean(menuAnchor)}
+        onClose={handleMenuClose}
+      >
+        <MenuItem onClick={handleMenuClose}>
+          <ListItemIcon>
+            <ViewIcon />
+          </ListItemIcon>
+          <ListItemText>View Details</ListItemText>
+        </MenuItem>
+
+        <MenuItem onClick={handleMenuClose}>
+          <ListItemIcon>
+            <SettingsIcon />
+          </ListItemIcon>
+          <ListItemText>Organization Settings</ListItemText>
+        </MenuItem>
+
+        {selectedOrg?.status === 'active' ? (
+          <MenuItem onClick={handleMenuClose}>
+            <ListItemIcon>
+              <SuspendIcon />
+            </ListItemIcon>
+            <ListItemText>Suspend Organization</ListItemText>
+          </MenuItem>
+        ) : (
+          <MenuItem onClick={handleMenuClose}>
+            <ListItemIcon>
+              <ActivateIcon />
+            </ListItemIcon>
+            <ListItemText>Activate Organization</ListItemText>
+          </MenuItem>
+        )}
+
+        <MenuItem onClick={handleMenuClose} sx={{ color: 'error.main' }}>
+          <ListItemIcon>
+            <DeleteIcon color="error" />
+          </ListItemIcon>
+          <ListItemText>Delete Organization</ListItemText>
+        </MenuItem>
+      </Menu>
+
+      {/* Implementation Notice */}
+      <Alert severity="info" sx={{ mt: 3 }}>
+        This is a placeholder page for organization management. Integration with the backend organization management API is pending.
+      </Alert>
+    </Box>
   );
 }

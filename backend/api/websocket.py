@@ -158,6 +158,14 @@ async def websocket_voice_endpoint(websocket: WebSocket, session_id: str):
             return
 
         session = manager.session_data[session_id]
+        
+        # Retrieve user_id from session for audio uploads
+        from backend.services.session_service import get_session_manager
+        session_manager = await get_session_manager()
+        session_info = await session_manager.get_session(session_id)
+        session_user_id = session_info.get("user_id", "anonymous") if session_info else "anonymous"
+        session["user_id"] = session_user_id  # Store in session for later use
+        
     except Exception as e:
         logger.error(f"Failed to establish WebSocket connection for session {session_id}: {e}")
         return
@@ -437,7 +445,7 @@ async def process_speech_buffer(session_id: str, session: dict):
                     session_id=session_id,
                     audio_type="input",
                     sample_rate=16000,
-                    user_id="anonymous"  # TODO: Get actual user_id when available
+                    user_id=session.get("user_id", "anonymous")
                 )
 
                 if user_audio_minio_key:
@@ -496,7 +504,7 @@ async def process_speech_buffer(session_id: str, session: dict):
                         session_id=session_id,
                         audio_type="refined",
                         sample_rate=16000,
-                        user_id="anonymous"  # TODO: Get actual user_id when available
+                        user_id=session.get("user_id", "anonymous")
                     )
 
                     if refined_audio_minio_key:

@@ -35,5 +35,7 @@ __all__ = [
     "get_current_admin_user_dep",
     "get_current_organization_dep",
     "get_current_organization_admin_dep",
-    "get_user_organizations_dep"
+    "get_user_organizations_dep",
+    "hash_password",
+    "verify_password",
 ]

@@ -17,8 +17,8 @@ import io
 import json
 
 from backend.services.audit_service import audit_service
-from backend.database.models import AuditLog, ActionType, ResourceType, ComplianceTag
-from backend.api.helper.AuthHelper import get_current_user, get_current_admin_user
+from backend.database.models import ActionType, ResourceType, ComplianceTag
+from backend.services.auth import get_current_admin_user_dep as get_current_admin_user
 from backend.database.models import User
 from backend.infrastructure.logging import get_logger
 

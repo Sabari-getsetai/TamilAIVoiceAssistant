@@ -18,7 +18,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from backend.database.connection import get_db
 from backend.database.models import Document, User, Organization
 from backend.services.document_service import get_document_service
-from backend.api.routes.auth import get_current_user, get_current_admin_user, get_current_organization
+
+from backend.services.auth import (
+    get_current_user_dep as get_current_user,
+    get_current_admin_user_dep as get_current_admin_user,
+    get_current_organization_dep as get_current_organization
+    )
 
 from backend.api.request_response.DocumentReqResp import (
     DocumentResponse,
